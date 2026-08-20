@@ -1,0 +1,14 @@
+{
+  "name": "petshop-dw",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ETL das lojas PetShop para o data warehouse dimensional no Supabase",
+  "scripts": {
+    "etl": "node etl/main.mjs",
+    "etl:dry": "node etl/main.mjs --dry"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
