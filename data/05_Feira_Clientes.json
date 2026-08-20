@@ -1,0 +1,1172 @@
+[
+    {
+        "id_cliente": 1,
+        "nome": "João Costa",
+        "email": null,
+        "telefone": "(75)981967819",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "2008-01-13"
+    },
+    {
+        "id_cliente": 2,
+        "nome": "Bruno Silva",
+        "email": "cliente2@email.com",
+        "telefone": "(75)910224217",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1999-04-06"
+    },
+    {
+        "id_cliente": 3,
+        "nome": "Ana Almeida",
+        "email": null,
+        "telefone": "(75)999541769",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1961-01-03"
+    },
+    {
+        "id_cliente": 4,
+        "nome": "Carlos Silva",
+        "email": "cliente4@email.com",
+        "telefone": "(75)914931607",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1971-08-27"
+    },
+    {
+        "id_cliente": 5,
+        "nome": "Bruno Rocha",
+        "email": "cliente5@email.com",
+        "telefone": "(75)963450619",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1991-06-01"
+    },
+    {
+        "id_cliente": 6,
+        "nome": "Márcia Almeida",
+        "email": "cliente6@email.com",
+        "telefone": "(75)921087694",
+        "sexo": "Feminino",
+        "estado_civil": null,
+        "data_nascimento": "2003-11-06"
+    },
+    {
+        "id_cliente": 7,
+        "nome": "Pedro Souza",
+        "email": "cliente7@email.com",
+        "telefone": "(75)986929375",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "2001-08-13"
+    },
+    {
+        "id_cliente": 8,
+        "nome": "Maria Oliveira",
+        "email": "cliente8@email.com",
+        "telefone": "(75)964454662",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1955-06-08"
+    },
+    {
+        "id_cliente": 9,
+        "nome": "Juliana Rocha",
+        "email": "cliente9@email.com",
+        "telefone": "(75)930637542",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1989-08-06"
+    },
+    {
+        "id_cliente": 10,
+        "nome": "Rafael Rocha",
+        "email": null,
+        "telefone": "(75)957251019",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1956-05-26"
+    },
+    {
+        "id_cliente": 11,
+        "nome": "Daniela Almeida",
+        "email": null,
+        "telefone": "(75)921127389",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1977-12-03"
+    },
+    {
+        "id_cliente": 12,
+        "nome": "Maria Almeida",
+        "email": null,
+        "telefone": "(75)973419318",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1956-06-09"
+    },
+    {
+        "id_cliente": 13,
+        "nome": "Bruno Almeida",
+        "email": "cliente13@email.com",
+        "telefone": "(75)929325229",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1981-02-23"
+    },
+    {
+        "id_cliente": 14,
+        "nome": "Fernanda Santos",
+        "email": "cliente14@email.com",
+        "telefone": "(75)929614475",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1979-09-10"
+    },
+    {
+        "id_cliente": 15,
+        "nome": "Rafael Pereira",
+        "email": "cliente15@email.com",
+        "telefone": "(75)989093844",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1962-11-06"
+    },
+    {
+        "id_cliente": 16,
+        "nome": "Daniela Silva",
+        "email": "cliente16@email.com",
+        "telefone": "(75)999769427",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1977-08-28"
+    },
+    {
+        "id_cliente": 17,
+        "nome": "Juliana Almeida",
+        "email": "cliente17@email.com",
+        "telefone": "(75)979369438",
+        "sexo": "Masculino",
+        "estado_civil": null,
+        "data_nascimento": "1988-06-28"
+    },
+    {
+        "id_cliente": 18,
+        "nome": "Bruno Santos",
+        "email": "cliente18@email.com",
+        "telefone": "(75)977954635",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1976-02-09"
+    },
+    {
+        "id_cliente": 19,
+        "nome": "Lucas Pereira",
+        "email": "cliente19@email.com",
+        "telefone": "(75)977797536",
+        "sexo": "Masculino",
+        "estado_civil": null,
+        "data_nascimento": "1987-02-07"
+    },
+    {
+        "id_cliente": 20,
+        "nome": "Maria Oliveira",
+        "email": "cliente20@email.com",
+        "telefone": "(75)984428388",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1975-02-11"
+    },
+    {
+        "id_cliente": 21,
+        "nome": "Carlos Rocha",
+        "email": "cliente21@email.com",
+        "telefone": "(75)987570353",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1971-12-27"
+    },
+    {
+        "id_cliente": 22,
+        "nome": "Bruno Almeida",
+        "email": "cliente22@email.com",
+        "telefone": "(75)990691336",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1994-11-01"
+    },
+    {
+        "id_cliente": 23,
+        "nome": "Bruno Santos",
+        "email": "cliente23@email.com",
+        "telefone": "(75)966473675",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1978-11-28"
+    },
+    {
+        "id_cliente": 24,
+        "nome": "Camila Oliveira",
+        "email": "cliente24@email.com",
+        "telefone": "(75)918380848",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "2007-03-13"
+    },
+    {
+        "id_cliente": 25,
+        "nome": "Rafael Costa",
+        "email": "cliente25@email.com",
+        "telefone": "(75)949714891",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1979-06-03"
+    },
+    {
+        "id_cliente": 26,
+        "nome": "Pedro Pereira",
+        "email": null,
+        "telefone": "(75)972484809",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1979-05-04"
+    },
+    {
+        "id_cliente": 27,
+        "nome": "Fernanda Rocha",
+        "email": "cliente27@email.com",
+        "telefone": "(75)971134322",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1977-04-23"
+    },
+    {
+        "id_cliente": 28,
+        "nome": "Bruno Silva",
+        "email": "cliente28@email.com",
+        "telefone": "(75)927701894",
+        "sexo": "Feminino",
+        "estado_civil": null,
+        "data_nascimento": "1997-08-24"
+    },
+    {
+        "id_cliente": 29,
+        "nome": "João Rocha",
+        "email": "cliente29@email.com",
+        "telefone": "(75)914315607",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1969-10-28"
+    },
+    {
+        "id_cliente": 30,
+        "nome": "Juliana Silva",
+        "email": "cliente30@email.com",
+        "telefone": "(75)965842186",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1971-05-06"
+    },
+    {
+        "id_cliente": 31,
+        "nome": "Daniela Silva",
+        "email": "cliente31@email.com",
+        "telefone": "(75)980433732",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1967-01-09"
+    },
+    {
+        "id_cliente": 32,
+        "nome": "Lucas Costa",
+        "email": "cliente32@email.com",
+        "telefone": "(75)923855025",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1973-09-03"
+    },
+    {
+        "id_cliente": 33,
+        "nome": "Pedro Oliveira",
+        "email": "cliente33@email.com",
+        "telefone": "(75)918073451",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1981-08-04"
+    },
+    {
+        "id_cliente": 34,
+        "nome": "Daniela Pereira",
+        "email": "cliente34@email.com",
+        "telefone": "(75)937940749",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1970-01-08"
+    },
+    {
+        "id_cliente": 35,
+        "nome": "Rafael Silva",
+        "email": null,
+        "telefone": "(75)968473810",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1956-01-08"
+    },
+    {
+        "id_cliente": 36,
+        "nome": "Patrícia Costa",
+        "email": "cliente36@email.com",
+        "telefone": "(75)958524112",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1968-09-01"
+    },
+    {
+        "id_cliente": 37,
+        "nome": "Paulo Oliveira",
+        "email": "cliente37@email.com",
+        "telefone": "(75)962356567",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1980-09-07"
+    },
+    {
+        "id_cliente": 38,
+        "nome": "Márcia Silva",
+        "email": "cliente38@email.com",
+        "telefone": "(75)957363242",
+        "sexo": "Masculino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1963-02-15"
+    },
+    {
+        "id_cliente": 39,
+        "nome": "Paulo Pereira",
+        "email": "cliente39@email.com",
+        "telefone": "(75)922731456",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1961-09-27"
+    },
+    {
+        "id_cliente": 40,
+        "nome": "Ana Oliveira",
+        "email": "cliente40@email.com",
+        "telefone": "(75)910713407",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1985-03-28"
+    },
+    {
+        "id_cliente": 41,
+        "nome": "Ana Pereira",
+        "email": null,
+        "telefone": "(75)964313319",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1982-04-22"
+    },
+    {
+        "id_cliente": 42,
+        "nome": "João Souza",
+        "email": "cliente42@email.com",
+        "telefone": "(75)968985248",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1997-01-12"
+    },
+    {
+        "id_cliente": 43,
+        "nome": "Fernanda Oliveira",
+        "email": "cliente43@email.com",
+        "telefone": "(75)949149391",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1960-11-01"
+    },
+    {
+        "id_cliente": 44,
+        "nome": "Rafael Pereira",
+        "email": "cliente44@email.com",
+        "telefone": "(75)943511018",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1990-02-04"
+    },
+    {
+        "id_cliente": 45,
+        "nome": "Fernanda Souza",
+        "email": "cliente45@email.com",
+        "telefone": "(75)982898289",
+        "sexo": "Feminino",
+        "estado_civil": null,
+        "data_nascimento": "1993-11-28"
+    },
+    {
+        "id_cliente": 46,
+        "nome": "Daniela Pereira",
+        "email": "cliente46@email.com",
+        "telefone": "(75)956956783",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1957-10-10"
+    },
+    {
+        "id_cliente": 47,
+        "nome": "Maria Pereira",
+        "email": "cliente47@email.com",
+        "telefone": "(75)934650855",
+        "sexo": "Feminino",
+        "estado_civil": null,
+        "data_nascimento": "1973-02-13"
+    },
+    {
+        "id_cliente": 48,
+        "nome": "Paulo Santos",
+        "email": "cliente48@email.com",
+        "telefone": "(75)919476910",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1967-07-21"
+    },
+    {
+        "id_cliente": 49,
+        "nome": "Lucas Pereira",
+        "email": "cliente49@email.com",
+        "telefone": "(75)913585603",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1989-03-13"
+    },
+    {
+        "id_cliente": 50,
+        "nome": "Maria Souza",
+        "email": "cliente50@email.com",
+        "telefone": "(75)923608983",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1963-12-20"
+    },
+    {
+        "id_cliente": 51,
+        "nome": "José Santos",
+        "email": "cliente51@email.com",
+        "telefone": "(75)922450830",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1963-05-14"
+    },
+    {
+        "id_cliente": 52,
+        "nome": "José Santos",
+        "email": "cliente52@email.com",
+        "telefone": "(75)922558620",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1983-04-01"
+    },
+    {
+        "id_cliente": 53,
+        "nome": "José Rocha",
+        "email": "cliente53@email.com",
+        "telefone": "(75)927757574",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1998-03-27"
+    },
+    {
+        "id_cliente": 54,
+        "nome": "Maria Almeida",
+        "email": "cliente54@email.com",
+        "telefone": "(75)981957805",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1963-02-06"
+    },
+    {
+        "id_cliente": 55,
+        "nome": "Daniela Souza",
+        "email": "cliente55@email.com",
+        "telefone": "(75)986364165",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1959-01-04"
+    },
+    {
+        "id_cliente": 56,
+        "nome": "Pedro Silva",
+        "email": "cliente56@email.com",
+        "telefone": "(75)983471230",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1974-05-20"
+    },
+    {
+        "id_cliente": 57,
+        "nome": "Maria Souza",
+        "email": "cliente57@email.com",
+        "telefone": "(75)916035340",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1982-04-16"
+    },
+    {
+        "id_cliente": 58,
+        "nome": "Ana Souza",
+        "email": "cliente58@email.com",
+        "telefone": "(75)987616828",
+        "sexo": "Masculino",
+        "estado_civil": null,
+        "data_nascimento": "1969-02-15"
+    },
+    {
+        "id_cliente": 59,
+        "nome": "Rafael Almeida",
+        "email": "cliente59@email.com",
+        "telefone": "(75)968964311",
+        "sexo": "Masculino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "2008-04-03"
+    },
+    {
+        "id_cliente": 60,
+        "nome": "Juliana Silva",
+        "email": "cliente60@email.com",
+        "telefone": "(75)923235422",
+        "sexo": "Masculino",
+        "estado_civil": null,
+        "data_nascimento": "2009-11-17"
+    },
+    {
+        "id_cliente": 61,
+        "nome": "Daniela Rocha",
+        "email": "cliente61@email.com",
+        "telefone": "(75)967530397",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1996-11-13"
+    },
+    {
+        "id_cliente": 62,
+        "nome": "Ana Silva",
+        "email": "cliente62@email.com",
+        "telefone": "(75)988346834",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "2005-12-22"
+    },
+    {
+        "id_cliente": 63,
+        "nome": "Camila Almeida",
+        "email": "cliente63@email.com",
+        "telefone": "(75)998693469",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1989-09-28"
+    },
+    {
+        "id_cliente": 64,
+        "nome": "Maria Souza",
+        "email": "cliente64@email.com",
+        "telefone": "(75)943056634",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1961-08-21"
+    },
+    {
+        "id_cliente": 65,
+        "nome": "Maria Pereira",
+        "email": "cliente65@email.com",
+        "telefone": "(75)982276935",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1996-12-10"
+    },
+    {
+        "id_cliente": 66,
+        "nome": "Lucas Souza",
+        "email": null,
+        "telefone": "(75)966555993",
+        "sexo": "Masculino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1986-06-25"
+    },
+    {
+        "id_cliente": 67,
+        "nome": "José Santos",
+        "email": "cliente67@email.com",
+        "telefone": "(75)923345737",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1987-11-23"
+    },
+    {
+        "id_cliente": 68,
+        "nome": "Fernanda Rocha",
+        "email": "cliente68@email.com",
+        "telefone": "(75)955344471",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "2005-11-09"
+    },
+    {
+        "id_cliente": 69,
+        "nome": "Patrícia Oliveira",
+        "email": "cliente69@email.com",
+        "telefone": "(75)929288641",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1999-09-23"
+    },
+    {
+        "id_cliente": 70,
+        "nome": "João Souza",
+        "email": "cliente70@email.com",
+        "telefone": "(75)984915308",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "2002-03-25"
+    },
+    {
+        "id_cliente": 71,
+        "nome": "Patrícia Rocha",
+        "email": "cliente71@email.com",
+        "telefone": "(75)977770387",
+        "sexo": "Feminino",
+        "estado_civil": null,
+        "data_nascimento": "1964-05-12"
+    },
+    {
+        "id_cliente": 72,
+        "nome": "Fernanda Santos",
+        "email": "cliente72@email.com",
+        "telefone": "(75)995613354",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1980-06-02"
+    },
+    {
+        "id_cliente": 73,
+        "nome": "Daniela Santos",
+        "email": "cliente73@email.com",
+        "telefone": "(75)957336379",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1962-01-23"
+    },
+    {
+        "id_cliente": 74,
+        "nome": "Bruno Oliveira",
+        "email": "cliente74@email.com",
+        "telefone": "(75)989000030",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1985-12-25"
+    },
+    {
+        "id_cliente": 75,
+        "nome": "Fernanda Silva",
+        "email": "cliente75@email.com",
+        "telefone": "(75)972934156",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "2007-11-27"
+    },
+    {
+        "id_cliente": 76,
+        "nome": "Maria Pereira",
+        "email": "cliente76@email.com",
+        "telefone": "(75)919595657",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1977-09-10"
+    },
+    {
+        "id_cliente": 77,
+        "nome": "Lucas Silva",
+        "email": "cliente77@email.com",
+        "telefone": "(75)979177436",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1955-10-16"
+    },
+    {
+        "id_cliente": 78,
+        "nome": "Rafael Rocha",
+        "email": null,
+        "telefone": "(75)965660027",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1969-06-23"
+    },
+    {
+        "id_cliente": 79,
+        "nome": "José Almeida",
+        "email": null,
+        "telefone": "(75)922031045",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1961-04-09"
+    },
+    {
+        "id_cliente": 80,
+        "nome": "Camila Souza",
+        "email": "cliente80@email.com",
+        "telefone": "(75)970196273",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "2007-11-21"
+    },
+    {
+        "id_cliente": 81,
+        "nome": "Paulo Silva",
+        "email": "cliente81@email.com",
+        "telefone": "(75)954604785",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1987-07-13"
+    },
+    {
+        "id_cliente": 82,
+        "nome": "Camila Santos",
+        "email": "cliente82@email.com",
+        "telefone": "(75)953130901",
+        "sexo": "Masculino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1983-07-17"
+    },
+    {
+        "id_cliente": 83,
+        "nome": "Lucas Costa",
+        "email": "cliente83@email.com",
+        "telefone": "(75)940385676",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1993-08-12"
+    },
+    {
+        "id_cliente": 84,
+        "nome": "Márcia Souza",
+        "email": "cliente84@email.com",
+        "telefone": "(75)951896763",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1990-04-28"
+    },
+    {
+        "id_cliente": 85,
+        "nome": "Lucas Rocha",
+        "email": "cliente85@email.com",
+        "telefone": "(75)949384016",
+        "sexo": "Masculino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1984-05-14"
+    },
+    {
+        "id_cliente": 86,
+        "nome": "Rafael Rocha",
+        "email": "cliente86@email.com",
+        "telefone": "(75)985998035",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "2009-06-13"
+    },
+    {
+        "id_cliente": 87,
+        "nome": "Fernanda Silva",
+        "email": "cliente87@email.com",
+        "telefone": "(75)946602595",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1983-11-20"
+    },
+    {
+        "id_cliente": 88,
+        "nome": "Juliana Souza",
+        "email": "cliente88@email.com",
+        "telefone": "(75)988281452",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "2006-12-03"
+    },
+    {
+        "id_cliente": 89,
+        "nome": "Ana Pereira",
+        "email": "cliente89@email.com",
+        "telefone": "(75)988907500",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1965-06-23"
+    },
+    {
+        "id_cliente": 90,
+        "nome": "Carlos Costa",
+        "email": "cliente90@email.com",
+        "telefone": "(75)936331523",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1994-04-20"
+    },
+    {
+        "id_cliente": 91,
+        "nome": "Lucas Silva",
+        "email": "cliente91@email.com",
+        "telefone": "(75)934280914",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1994-08-01"
+    },
+    {
+        "id_cliente": 92,
+        "nome": "Bruno Souza",
+        "email": "cliente92@email.com",
+        "telefone": "(75)933454984",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1977-04-03"
+    },
+    {
+        "id_cliente": 93,
+        "nome": "Daniela Souza",
+        "email": null,
+        "telefone": "(75)997840736",
+        "sexo": "Masculino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1993-11-08"
+    },
+    {
+        "id_cliente": 94,
+        "nome": "Daniela Souza",
+        "email": "cliente94@email.com",
+        "telefone": "(75)959498495",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "2003-03-19"
+    },
+    {
+        "id_cliente": 95,
+        "nome": "Maria Rocha",
+        "email": "cliente95@email.com",
+        "telefone": "(75)935828983",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1965-10-05"
+    },
+    {
+        "id_cliente": 96,
+        "nome": "Juliana Rocha",
+        "email": "cliente96@email.com",
+        "telefone": "(75)981059408",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1999-04-06"
+    },
+    {
+        "id_cliente": 97,
+        "nome": "Fernanda Rocha",
+        "email": "cliente97@email.com",
+        "telefone": "(75)912189215",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1995-03-23"
+    },
+    {
+        "id_cliente": 98,
+        "nome": "Rafael Oliveira",
+        "email": "cliente98@email.com",
+        "telefone": "(75)920468411",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1982-12-28"
+    },
+    {
+        "id_cliente": 99,
+        "nome": "Pedro Costa",
+        "email": "cliente99@email.com",
+        "telefone": "(75)998606599",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1968-04-01"
+    },
+    {
+        "id_cliente": 100,
+        "nome": "Daniela Costa",
+        "email": "cliente100@email.com",
+        "telefone": "(75)968527462",
+        "sexo": "Feminino",
+        "estado_civil": "Viúvo",
+        "data_nascimento": "1975-09-03"
+    },
+    {
+        "id_cliente": 101,
+        "nome": "José Rocha",
+        "email": "cliente101@email.com",
+        "telefone": "(75)972782912",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1963-08-26"
+    },
+    {
+        "id_cliente": 102,
+        "nome": "José Rocha",
+        "email": "cliente102@email.com",
+        "telefone": "(75)944157827",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1969-06-23"
+    },
+    {
+        "id_cliente": 103,
+        "nome": "Ana Santos",
+        "email": null,
+        "telefone": "(75)961995843",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "2008-08-15"
+    },
+    {
+        "id_cliente": 104,
+        "nome": "Patrícia Oliveira",
+        "email": "cliente104@email.com",
+        "telefone": "(75)929279157",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "2001-08-25"
+    },
+    {
+        "id_cliente": 105,
+        "nome": "Daniela Pereira",
+        "email": "cliente105@email.com",
+        "telefone": "(75)968092134",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1978-07-18"
+    },
+    {
+        "id_cliente": 106,
+        "nome": "Fernanda Rocha",
+        "email": "cliente106@email.com",
+        "telefone": "(75)992080599",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1993-06-15"
+    },
+    {
+        "id_cliente": 107,
+        "nome": "Maria Rocha",
+        "email": "cliente107@email.com",
+        "telefone": "(75)927888026",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1970-01-09"
+    },
+    {
+        "id_cliente": 108,
+        "nome": "Patrícia Rocha",
+        "email": "cliente108@email.com",
+        "telefone": "(75)933230162",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1970-09-05"
+    },
+    {
+        "id_cliente": 109,
+        "nome": "Rafael Rocha",
+        "email": null,
+        "telefone": "(75)953627739",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "2005-12-22"
+    },
+    {
+        "id_cliente": 110,
+        "nome": "Ana Oliveira",
+        "email": "cliente110@email.com",
+        "telefone": "(75)966029074",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1960-06-06"
+    },
+    {
+        "id_cliente": 111,
+        "nome": "Paulo Rocha",
+        "email": "cliente111@email.com",
+        "telefone": "(75)923815852",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1984-07-08"
+    },
+    {
+        "id_cliente": 112,
+        "nome": "João Pereira",
+        "email": "cliente112@email.com",
+        "telefone": "(75)918849052",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1969-01-23"
+    },
+    {
+        "id_cliente": 113,
+        "nome": "Márcia Rocha",
+        "email": "cliente113@email.com",
+        "telefone": "(75)994259760",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "2006-07-26"
+    },
+    {
+        "id_cliente": 114,
+        "nome": "Lucas Oliveira",
+        "email": null,
+        "telefone": "(75)973143361",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1995-05-09"
+    },
+    {
+        "id_cliente": 115,
+        "nome": "Carlos Almeida",
+        "email": "cliente115@email.com",
+        "telefone": "(75)958958451",
+        "sexo": "Masculino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1978-11-08"
+    },
+    {
+        "id_cliente": 116,
+        "nome": "Paulo Silva",
+        "email": "cliente116@email.com",
+        "telefone": "(75)996990185",
+        "sexo": "Feminino",
+        "estado_civil": null,
+        "data_nascimento": "1994-10-02"
+    },
+    {
+        "id_cliente": 117,
+        "nome": "Bruno Santos",
+        "email": "cliente117@email.com",
+        "telefone": "(75)969432503",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1996-07-08"
+    },
+    {
+        "id_cliente": 118,
+        "nome": "Lucas Pereira",
+        "email": "cliente118@email.com",
+        "telefone": "(75)978362433",
+        "sexo": "Feminino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1995-08-12"
+    },
+    {
+        "id_cliente": 119,
+        "nome": "Patrícia Rocha",
+        "email": "cliente119@email.com",
+        "telefone": "(75)916641336",
+        "sexo": "Feminino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1964-11-14"
+    },
+    {
+        "id_cliente": 120,
+        "nome": "Rafael Rocha",
+        "email": "cliente120@email.com",
+        "telefone": "(75)932972220",
+        "sexo": "Masculino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1968-11-08"
+    },
+    {
+        "id_cliente": 121,
+        "nome": "Pedro Oliveira",
+        "email": "cliente121@email.com",
+        "telefone": "(75)935552065",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1979-07-24"
+    },
+    {
+        "id_cliente": 122,
+        "nome": "Ana Oliveira",
+        "email": "cliente122@email.com",
+        "telefone": "(75)955295523",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1958-08-11"
+    },
+    {
+        "id_cliente": 123,
+        "nome": "Rafael Almeida",
+        "email": "cliente123@email.com",
+        "telefone": "(75)961039237",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1974-11-25"
+    },
+    {
+        "id_cliente": 124,
+        "nome": "Daniela Souza",
+        "email": "cliente124@email.com",
+        "telefone": "(75)934844290",
+        "sexo": "Feminino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1992-11-02"
+    },
+    {
+        "id_cliente": 125,
+        "nome": "Bruno Rocha",
+        "email": "cliente125@email.com",
+        "telefone": "(75)917653249",
+        "sexo": "Feminino",
+        "estado_civil": "Solteiro",
+        "data_nascimento": "1986-01-20"
+    },
+    {
+        "id_cliente": 126,
+        "nome": "Ana Souza",
+        "email": "cliente126@email.com",
+        "telefone": "(75)942486287",
+        "sexo": "Masculino",
+        "estado_civil": "Divorciado",
+        "data_nascimento": "1996-04-09"
+    },
+    {
+        "id_cliente": 127,
+        "nome": "Fernanda Rocha",
+        "email": null,
+        "telefone": "(75)928508378",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1985-06-18"
+    },
+    {
+        "id_cliente": 128,
+        "nome": "Márcia Rocha",
+        "email": "cliente128@email.com",
+        "telefone": "(75)971925098",
+        "sexo": "Masculino",
+        "estado_civil": "Casado",
+        "data_nascimento": "1962-07-04"
+    },
+    {
+        "id_cliente": 129,
+        "nome": "Camila Santos",
+        "email": "cliente129@email.com",
+        "telefone": "(75)943431198",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1969-09-05"
+    },
+    {
+        "id_cliente": 130,
+        "nome": "Fernanda Souza",
+        "email": null,
+        "telefone": "(75)941539431",
+        "sexo": "Masculino",
+        "estado_civil": "União Estável",
+        "data_nascimento": "1974-02-08"
+    }
+]

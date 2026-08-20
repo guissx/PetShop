@@ -1,0 +1,92 @@
+[
+  {
+    "id_produto": 1,
+    "nome_produto": "Ração Premium Cães",
+    "categoria": "Rações",
+    "preco": 129.90
+  },
+  {
+    "id_produto": 2,
+    "nome_produto": "Ração Premium Gatos",
+    "categoria": "Rações",
+    "preco": 119.90
+  },
+  {
+    "id_produto": 3,
+    "nome_produto": "Antipulgas",
+    "categoria": "Medicamentos",
+    "preco": 79.90
+  },
+  {
+    "id_produto": 4,
+    "nome_produto": "Vermífugo",
+    "categoria": "Medicamentos",
+    "preco": 49.90
+  },
+  {
+    "id_produto": 5,
+    "nome_produto": "Coleira Nylon",
+    "categoria": "Acessórios",
+    "preco": 29.90
+  },
+  {
+    "id_produto": 6,
+    "nome_produto": "Guia Retrátil",
+    "categoria": "Acessórios",
+    "preco": 65.90
+  },
+  {
+    "id_produto": 7,
+    "nome_produto": "Bola Borracha",
+    "categoria": "Brinquedos",
+    "preco": 19.90
+  },
+  {
+    "id_produto": 8,
+    "nome_produto": "Corda Mordedor",
+    "categoria": "Brinquedos",
+    "preco": 24.90
+  },
+  {
+    "id_produto": 9,
+    "nome_produto": "Shampoo Pet",
+    "categoria": "Higiene",
+    "preco": 34.90
+  },
+  {
+    "id_produto": 10,
+    "nome_produto": "Petisco Bifinho",
+    "categoria": "Petiscos",
+    "preco": 14.90
+  },
+  {
+    "id_produto": 11,
+    "nome_produto": "Cama Luxo",
+    "categoria": "Camas",
+    "preco": 149.90
+  },
+  {
+    "id_produto": 12,
+    "nome_produto": "Comedouro Inox",
+    "categoria": "Comedouros",
+    "preco": 39.90
+  },
+  {
+    "id_produto": 13,
+    "nome_produto": "Tapete Higiênico Premium",
+    "categoria": "Higiene",
+    "preco": 89.90
+  },
+  {
+    "id_produto": 14,
+    "nome_produto": "Osso Mastigável Natural",
+    "categoria": "Petiscos",
+    "preco": 24.50
+  },
+  {
+    "id_produto": 15,
+    "nome_produto": "Caixa de Transporte",
+    "categoria": "Acessórios",
+    "preco": 159.90
+  }
+]
