@@ -137,4 +137,3 @@ COMMIT;
 SELECT character_maximum_length AS estado_max
 FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = 'dim_loja' AND column_name = 'estado';
-
