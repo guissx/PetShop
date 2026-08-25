@@ -6,9 +6,15 @@
   "description": "ETL das lojas PetShop para o data warehouse dimensional no Supabase",
   "scripts": {
     "etl": "node etl/main.mjs",
-    "etl:dry": "node etl/main.mjs --dry"
+    "etl:dry": "node etl/main.mjs --dry",
+    "deploy": "node etl/deploy.mjs",
+    "test": "node --test --test-isolation=none",
+    "verify": "node --test --test-isolation=none && node etl/main.mjs --dry"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
   }
 }

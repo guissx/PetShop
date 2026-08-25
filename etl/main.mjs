@@ -10,13 +10,15 @@
 // conformação falhar, para que o passo quebre em CI em vez de gerar SQL ruim.
 // =============================================================================
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { extrairTudo } from './extract.mjs';
 import { conformarTudo } from './conform.mjs';
 import { emitirRaw, emitirMap, emitirCln, emitirCarga } from './emit.mjs';
+import { ARQUIVOS } from './config.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(AQUI, '..');
@@ -31,7 +33,26 @@ function args() {
     dry: a.includes('--dry'),
     dados: resolve(pegar('--dados') ?? join(RAIZ, 'data')),
     saida: resolve(pegar('--saida') ?? join(RAIZ, 'sql', 'generated')),
+    idCarga: pegar('--id-carga') ?? randomUUID(),
+    dataEfetiva: pegar('--data-efetiva') ?? new Date().toISOString(),
   };
+}
+
+export function criarContextoCarga(dados, idCarga, dataEfetiva) {
+  const vistos = new Set();
+  const manifest = [];
+  for (const { arquivo } of Object.values(ARQUIVOS)) {
+    if (vistos.has(arquivo)) continue;
+    vistos.add(arquivo);
+    const caminho = join(dados, arquivo);
+    const bytes = readFileSync(caminho);
+    manifest.push({
+      arquivo,
+      bytes: statSync(caminho).size,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    });
+  }
+  return { idCarga, dataEfetiva, origem: dados, manifest };
 }
 
 function titulo(t) {
@@ -40,7 +61,8 @@ function titulo(t) {
 }
 
 function main() {
-  const { dry, dados, saida } = args();
+  const { dry, dados, saida, idCarga, dataEfetiva } = args();
+  const contexto = criarContextoCarga(dados, idCarga, dataEfetiva);
 
   titulo('1. Extração');
   console.log(`origem: ${dados}`);
@@ -54,6 +76,7 @@ function main() {
                 (s.servicos.length ? `  servicos=${s.servicos.length} atendimentos=${s.atendimentos.length}` : ''));
   }
   console.log(`  ${'concorrente'.padEnd(9)} linhas=${fontes.concorrente.length}`);
+  console.log(`  id_carga  ${contexto.idCarga}`);
 
   titulo('2. Conformação');
   const c = conformarTudo(fontes);
@@ -106,10 +129,10 @@ function main() {
   }
 
   const arquivos = {
-    '10_stg_raw.sql': emitirRaw(fontes),
-    '20_stg_map.sql': emitirMap(c),
-    '30_stg_cln.sql': emitirCln(c),
-    '40_load_dw.sql': emitirCarga(),
+    '10_stg_raw.sql': emitirRaw(fontes, contexto),
+    '20_stg_map.sql': emitirMap(c, contexto),
+    '30_stg_cln.sql': emitirCln(c, contexto),
+    '40_load_dw.sql': emitirCarga(contexto),
   };
 
   titulo(dry ? '7. Geração (--dry: nada escrito)' : '7. Geração');
@@ -119,18 +142,27 @@ function main() {
     if (!dry) writeFileSync(join(saida, nome), conteudo, 'utf8');
     console.log(`  ${nome.padEnd(18)} ${kb.padStart(8)} KB`);
   }
+  if (!dry) {
+    writeFileSync(join(saida, 'manifest.json'), JSON.stringify({
+      ...contexto,
+      resumo: c.resumo,
+      avisos: c.avisos,
+    }, null, 2) + '\n', 'utf8');
+    console.log(`  ${'manifest.json'.padEnd(18)} ${'auditoria'.padStart(8)}`);
+  }
   if (!dry) console.log(`\ndestino: ${saida}`);
 
   titulo('Próximo passo');
   console.log('  Rode no banco, nesta ordem:');
-  console.log('    sql/01_dw_ddl.sql            (só se o DW ainda não existir)');
-  console.log('    sql/02_stg_ddl.sql           (cria o schema stg)');
+  console.log('    sql/00_preflight.sql         (corrige e valida o DW existente)');
+  console.log('    sql/02_stg_ddl.sql           (cria/atualiza o schema stg)');
   console.log('    sql/generated/10_stg_raw.sql');
   console.log('    sql/generated/20_stg_map.sql');
   console.log('    sql/generated/30_stg_cln.sql');
   console.log('    sql/generated/40_load_dw.sql');
-  console.log('\n  O MCP configurado é --read-only: use o SQL editor do dashboard');
-  console.log('  ou psql com a DATABASE_URL do .env.\n');
+  console.log('\n  Use a string Session pooler sem senha e valide primeiro:');
+  console.log('  npm run deploy -- --project-ref <REF> --database-url "<URL>" --check');
+  console.log('  Depois repita com --yes para aplicar a carga.\n');
 }
 
 try {

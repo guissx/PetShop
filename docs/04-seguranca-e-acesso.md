@@ -1,9 +1,9 @@
 # 04 — Segurança e acesso
 
-Estado de segurança verificado nos catálogos e no linter oficial do Supabase
-(`get_advisors`). O banco está vazio, então nada disso é incidente hoje — mas
-**quatro dos cinco achados passam a expor dado real no instante da primeira
-carga**.
+Diagnóstico histórico de segurança do modelo original. As correções locais
+foram consolidadas em `sql/00_preflight.sql` e na instalação limpa
+`sql/01_dw_ddl.sql`; elas ainda precisam ser verificadas pelos advisors no
+projeto Supabase correto após a implantação.
 
 ## Papéis e privilégios
 
@@ -206,7 +206,7 @@ CREATE INDEX ix_conc_produto ON public.fat_concorrente (sk_produto);
 A conexão MCP configurada em `.mcp.json` roda:
 
 ```
-npx -y @supabase/mcp-server-supabase@latest --read-only --project-ref=ahoxobyduzludlgxtpsx
+npx -y @supabase/mcp-server-supabase@latest --read-only --project-ref=<PETSHOP_SUPABASE_PROJECT_REF>
 ```
 
 | Item | Valor |

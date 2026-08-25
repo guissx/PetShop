@@ -1,7 +1,8 @@
 # 03 — Objetos do banco
 
-Inventário completo do que existe no projeto Supabase `ahoxobyduzludlgxtpsx`,
-levantado dos catálogos do PostgreSQL 17.6.
+Inventário histórico levantado do modelo original em PostgreSQL 17.6. Para a
+estrutura executável atual, prevalecem `sql/00_preflight.sql`,
+`sql/01_dw_ddl.sql` e `sql/02_stg_ddl.sql`.
 
 ## Schemas
 

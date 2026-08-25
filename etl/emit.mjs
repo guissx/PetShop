@@ -61,14 +61,26 @@ function cabecalho(titulo, descricao) {
 // =============================================================================
 // 10 — camada raw
 // =============================================================================
-export function emitirRaw(fontes) {
+export function emitirRaw(fontes, contexto) {
   const p = [];
+  const idCarga = contexto.idCarga;
   p.push(cabecalho('stg.raw_* — espelho fiel das fontes',
     'Tudo text, nada interpretado. As datas do Salvador continuam em DD/MM/YYYY.\n' +
     '`ordem_arquivo` é a posição no arquivo de origem e NÃO é decorativa: no\n' +
     'Itabuna as chaves são SERIAL, logo o id da entidade É a posição.'));
 
-  p.push('BEGIN;\n');
+  p.push('BEGIN;');
+  p.push("SELECT pg_advisory_xact_lock(hashtext('petshop_etl_staging'));\n");
+  p.push(`INSERT INTO stg.etl_carga
+    (id_carga, status, origem, data_efetiva, manifesto, resumo, finalizado_em, erro)
+VALUES
+    (${lit(idCarga)}::uuid, 'iniciada', ${lit(contexto.origem)},
+     ${lit(contexto.dataEfetiva)}::timestamptz, ${lit(JSON.stringify(contexto.manifest))}::jsonb,
+     '{}'::jsonb, NULL, NULL)
+ON CONFLICT (id_carga) DO UPDATE SET
+    status = 'iniciada', origem = EXCLUDED.origem,
+    data_efetiva = EXCLUDED.data_efetiva, manifesto = EXCLUDED.manifesto,
+    resumo = '{}'::jsonb, finalizado_em = NULL, erro = NULL;\n`);
   p.push('TRUNCATE stg.raw_produto, stg.raw_categoria, stg.raw_cliente,');
   p.push('         stg.raw_venda, stg.raw_item_venda, stg.raw_servico,');
   p.push('         stg.raw_atendimento, stg.raw_concorrente;\n');
@@ -76,42 +88,48 @@ export function emitirRaw(fontes) {
   const todas = k => ['salvador', 'itabuna', 'feira'].flatMap(f => fontes[f][k]);
 
   p.push('-- categorias (só Salvador tem tabela própria)');
-  p.push(inserts('stg.raw_categoria', ['fonte', 'ordem_arquivo', 'id_origem', 'nome'],
-    todas('categorias').map(c => ({ ...c, ordem_arquivo: c.ordem }))));
+  p.push(inserts('stg.raw_categoria', ['id_carga', 'fonte', 'ordem_arquivo', 'id_origem', 'nome'],
+    todas('categorias').map(c => ({ ...c, id_carga: idCarga, ordem_arquivo: c.ordem }))));
 
   p.push('-- produtos');
   p.push(inserts('stg.raw_produto',
-    ['fonte', 'ordem_arquivo', 'id_origem', 'nome', 'categoria', 'preco'],
-    todas('produtos').map(x => ({ ...x, ordem_arquivo: x.ordem }))));
+    ['id_carga', 'fonte', 'ordem_arquivo', 'id_origem', 'nome', 'categoria', 'preco'],
+    todas('produtos').map(x => ({ ...x, id_carga: idCarga, ordem_arquivo: x.ordem }))));
 
   p.push('-- clientes (só estado_civil chega ao DW; o resto fica para auditoria)');
   p.push(inserts('stg.raw_cliente',
-    ['fonte', 'ordem_arquivo', 'id_origem', 'nome', 'email', 'telefone', 'sexo',
+    ['id_carga', 'fonte', 'ordem_arquivo', 'id_origem', 'nome', 'email', 'telefone', 'sexo',
      'estado_civil', 'data_nascimento', 'data_cadastro'],
-    todas('clientes').map(x => ({ ...x, ordem_arquivo: x.ordem }))));
+    todas('clientes').map(x => ({ ...x, id_carga: idCarga, ordem_arquivo: x.ordem }))));
 
   p.push('-- vendas (valor_total do Itabuna preservado aqui, mas NÃO usado)');
   p.push(inserts('stg.raw_venda',
-    ['fonte', 'ordem_arquivo', 'id_origem', 'id_cliente', 'data_venda', 'valor_total'],
-    todas('vendas').map(x => ({ ...x, ordem_arquivo: x.ordem }))));
+    ['id_carga', 'fonte', 'ordem_arquivo', 'id_origem', 'id_cliente', 'data_venda', 'valor_total'],
+    todas('vendas').map(x => ({ ...x, id_carga: idCarga, ordem_arquivo: x.ordem }))));
 
   p.push('-- itens de venda (grão de fato)');
   p.push(inserts('stg.raw_item_venda',
-    ['fonte', 'ordem_arquivo', 'id_origem', 'id_venda', 'seq_item', 'id_produto',
+    ['id_carga', 'fonte', 'ordem_arquivo', 'id_origem', 'id_venda', 'seq_item', 'id_produto',
      'quantidade', 'valor_unitario'],
-    todas('itens').map(x => ({ ...x, ordem_arquivo: x.ordem }))));
+    todas('itens').map(x => ({ ...x, id_carga: idCarga, ordem_arquivo: x.ordem }))));
 
   p.push('-- serviços do Itabuna: SEM destino no DW, guardados para rastreio');
-  p.push(inserts('stg.raw_servico', ['fonte', 'ordem_arquivo', 'id_origem', 'descricao', 'valor'],
-    fontes.itabuna.servicos.map(x => ({ ...x, ordem_arquivo: x.ordem }))));
+  p.push(inserts('stg.raw_servico', ['id_carga', 'fonte', 'ordem_arquivo', 'id_origem', 'descricao', 'valor'],
+    fontes.itabuna.servicos.map(x => ({ ...x, id_carga: idCarga, ordem_arquivo: x.ordem }))));
   p.push(inserts('stg.raw_atendimento',
-    ['fonte', 'ordem_arquivo', 'id_origem', 'id_cliente', 'id_servico',
+    ['id_carga', 'fonte', 'ordem_arquivo', 'id_origem', 'id_cliente', 'id_servico',
      'data_atendimento', 'valor_cobrado'],
-    fontes.itabuna.atendimentos.map(x => ({ ...x, ordem_arquivo: x.ordem }))));
+    fontes.itabuna.atendimentos.map(x => ({ ...x, id_carga: idCarga, ordem_arquivo: x.ordem }))));
 
   p.push('-- concorrente');
-  p.push(inserts('stg.raw_concorrente', ['fonte', 'ordem_arquivo', 'ano', 'mes', 'valor_venda'],
-    fontes.concorrente.map(x => ({ ...x, ordem_arquivo: x.ordem, mes: x.mes_abrev }))));
+  p.push(inserts('stg.raw_concorrente', ['id_carga', 'fonte', 'ordem_arquivo', 'ano', 'mes', 'valor_venda'],
+    fontes.concorrente.map(x => ({ ...x, id_carga: idCarga, ordem_arquivo: x.ordem, mes: x.mes_abrev }))));
+
+  p.push(`UPDATE stg.etl_carga
+SET status = 'extraida',
+    resumo = jsonb_build_object('raw_itens_venda', ${todas('itens').length},
+                                'raw_concorrente', ${fontes.concorrente.length})
+WHERE id_carga = ${lit(idCarga)}::uuid;\n`);
 
   p.push('COMMIT;\n');
   return p.join('\n');
@@ -120,14 +138,25 @@ export function emitirRaw(fontes) {
 // =============================================================================
 // 20 — camada map (derivada, não digitada)
 // =============================================================================
-export function emitirMap(c) {
+export function emitirMap(c, contexto) {
   const p = [];
+  const idCarga = contexto.idCarga;
   p.push(cabecalho('stg.map_* — catálogo conformado e de-para',
     'DERIVADO dos arquivos de origem por etl/conform.mjs, não digitado à mão.\n' +
     'Resolve a colisão de chaves naturais: o mesmo id_produto significa produtos\n' +
     'diferentes em cada fonte, e dim_produto tem chave natural global.'));
 
-  p.push('BEGIN;\n');
+  p.push('BEGIN;');
+  p.push("SELECT pg_advisory_xact_lock(hashtext('petshop_etl_staging'));\n");
+  p.push(`DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM stg.etl_carga
+        WHERE id_carga = ${lit(idCarga)}::uuid AND status = 'extraida'
+    ) THEN
+        RAISE EXCEPTION 'lote ${idCarga} não está no estado extraida';
+    END IF;
+END $$;\n`);
   p.push('TRUNCATE stg.map_produto, stg.map_produto_origem,');
   p.push('         stg.map_estado_civil, stg.map_estado_civil_origem, stg.map_loja CASCADE;\n');
 
@@ -152,6 +181,12 @@ export function emitirMap(c) {
   p.push(inserts('stg.map_loja', ['fonte', 'id_loja', 'loja', 'cidade', 'estado'],
     c.lojas));
 
+  p.push(`UPDATE stg.etl_carga
+SET status = 'mapeada',
+    resumo = resumo || jsonb_build_object('produtos_conformados', ${c.catalogo.length},
+                                          'depara_produto', ${c.deparaProduto.length})
+WHERE id_carga = ${lit(idCarga)}::uuid;\n`);
+
   p.push('COMMIT;\n');
   return p.join('\n');
 }
@@ -159,8 +194,9 @@ export function emitirMap(c) {
 // =============================================================================
 // 30 — camada cln
 // =============================================================================
-export function emitirCln(c) {
+export function emitirCln(c, contexto) {
   const p = [];
+  const idCarga = contexto.idCarga;
   p.push(cabecalho('stg.cln_* — tipado e conformado, pronto para carga',
     'As chaves de fato já vêm calculadas:\n' +
     `  id_venda = id_loja * ${FATOR_LOJA} + id_venda_origem * ${FATOR_VENDA} + seq_item\n` +
@@ -171,9 +207,20 @@ export function emitirCln(c) {
     'no 40_load_dw.sql, porque as SKs são IDENTITY e só existem depois da carga\n' +
     'das dimensões.'));
 
-  p.push('BEGIN;\n');
+  p.push('BEGIN;');
+  p.push("SELECT pg_advisory_xact_lock(hashtext('petshop_etl_staging'));\n");
+  p.push(`DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM stg.etl_carga
+        WHERE id_carga = ${lit(idCarga)}::uuid AND status = 'mapeada'
+    ) THEN
+        RAISE EXCEPTION 'lote ${idCarga} não está no estado mapeada';
+    END IF;
+END $$;\n`);
   p.push('TRUNCATE stg.cln_dim_produto, stg.cln_dim_loja, stg.cln_dim_estado_civil,');
   p.push('         stg.cln_dim_data, stg.cln_fat_vendas, stg.cln_fat_concorrente;\n');
+  p.push(`DELETE FROM stg.rej_carga WHERE id_carga = ${lit(idCarga)}::uuid;\n`);
 
   p.push('-- dimensões');
   p.push(inserts('stg.cln_dim_produto', ['id_produto', 'produto', 'categoria'], c.catalogo));
@@ -197,14 +244,24 @@ export function emitirCln(c) {
 
   if (c.rejeitos.length) {
     p.push('-- quarentena: linhas que não entram, com o motivo');
-    p.push(inserts('stg.rej_carga', ['destino', 'fonte', 'motivo', 'linha_original'],
+    p.push(inserts('stg.rej_carga', ['id_carga', 'destino', 'fonte', 'motivo', 'linha_original'],
       c.rejeitos.map(r => ({
-        destino: r.destino, fonte: r.fonte, motivo: r.motivo,
+        id_carga: idCarga, destino: r.destino, fonte: r.fonte, motivo: r.motivo,
         linha_original: JSON.stringify(r.linha),
       }))));
   } else {
     p.push('-- nenhuma linha rejeitada nesta extração');
   }
+
+  p.push(`UPDATE stg.etl_carga
+SET status = 'transformada',
+    resumo = resumo || jsonb_build_object(
+        'fatos_venda', ${c.fatos.length},
+        'fatos_concorrente', ${c.concorrente.length},
+        'rejeitados', ${c.rejeitos.length},
+        'itens_origem', ${c.resumo.itensOrigem}
+    )
+WHERE id_carga = ${lit(idCarga)}::uuid;\n`);
 
   p.push('COMMIT;\n');
   return p.join('\n');
@@ -215,145 +272,244 @@ export function emitirCln(c) {
 // =============================================================================
 // Escrito como SQL fixo (não depende dos dados), mas gerado aqui para que as
 // constantes venham de config.mjs em vez de serem repetidas à mão.
-export function emitirCarga() {
-  return cabecalho('Carga stg.cln_* -> public',
-    'Resolve as surrogate keys e carrega o DW. As dimensões SCD2 entram na\n' +
-    'versão 1, com data_inicio no começo do calendário para que a vigência\n' +
-    'cubra todos os fatos (com now() os fatos de 2024 ficariam fora da vigência\n' +
-    'e qualquer consulta point-in-time daria errado).\n' +
-    '\n' +
-    'Idempotente: rode quantas vezes quiser. As dimensões usam ON CONFLICT e os\n' +
-    'fatos são truncados antes.') + `
+export function emitirCarga(contexto) {
+  const idCarga = contexto.idCarga;
+  const corte = `(${lit(contexto.dataEfetiva)}::timestamptz AT TIME ZONE 'UTC')`;
+  return cabecalho('Carga transacional stg.cln_* -> public',
+    'Implementa SCD2 real para produto e loja, resolve as surrogate keys pela\n' +
+    'vigência do fato e valida tudo ANTES do COMMIT. Um advisory lock impede\n' +
+    'duas cargas concorrentes. Reexecutar o mesmo lote é idempotente.') + `
 BEGIN;
+SET LOCAL lock_timeout = '10s';
+SET LOCAL statement_timeout = '5min';
+SELECT pg_advisory_xact_lock(hashtext('petshop_etl_dw'));
 
--- ordem imposta pelas FKs: dimensões antes dos fatos
-TRUNCATE public.fat_vendas, public.fat_concorrente;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM stg.etl_carga
+        WHERE id_carga = ${lit(idCarga)}::uuid AND status IN ('transformada', 'concluida')
+    ) THEN
+        RAISE EXCEPTION 'lote ${idCarga} não está pronto para carga';
+    END IF;
 
--- ---------------------------------------------------------------------------
--- dim_data
--- ---------------------------------------------------------------------------
+    IF EXISTS (
+        SELECT 1
+        FROM public.dim_produto d
+        JOIN stg.cln_dim_produto c USING (id_produto)
+        WHERE d.flag_atual
+          AND (d.produto, d.categoria) IS DISTINCT FROM (c.produto, c.categoria)
+          AND d.data_inicio >= ${corte}
+    ) OR EXISTS (
+        SELECT 1
+        FROM public.dim_loja d
+        JOIN stg.cln_dim_loja c USING (id_loja)
+        WHERE d.flag_atual
+          AND (d.loja, d.cidade, btrim(d.estado))
+              IS DISTINCT FROM (c.loja, c.cidade, btrim(c.estado))
+          AND d.data_inicio >= ${corte}
+    ) THEN
+        RAISE EXCEPTION 'data efetiva do lote não é posterior à versão SCD2 atual';
+    END IF;
+END $$;
+
+-- Dimensões estáticas.
 INSERT INTO public.dim_data (data, ano, quadrimestre)
 SELECT data, ano, quadrimestre FROM stg.cln_dim_data
-ON CONFLICT (data) DO NOTHING;
+ON CONFLICT (data) DO UPDATE SET
+    ano = EXCLUDED.ano,
+    quadrimestre = EXCLUDED.quadrimestre;
 
--- ---------------------------------------------------------------------------
--- dim_estado_civil
--- ---------------------------------------------------------------------------
 INSERT INTO public.dim_estado_civil (id_estado_civil, estado_civil)
 SELECT id_estado_civil, estado_civil FROM stg.cln_dim_estado_civil
-ON CONFLICT (id_estado_civil) DO UPDATE SET estado_civil = EXCLUDED.estado_civil;
+ON CONFLICT (id_estado_civil) DO UPDATE SET
+    estado_civil = EXCLUDED.estado_civil;
 
--- ---------------------------------------------------------------------------
--- dim_produto — SCD2, carga inicial (versão 1)
--- ---------------------------------------------------------------------------
--- ux_produto_atual impede duas versões correntes da mesma chave natural, e
--- ex_produto_per impede vigências sobrepostas. Na carga inicial não há versão
--- anterior para fechar, então basta inserir.
-INSERT INTO public.dim_produto (id_produto, produto, categoria, data_inicio)
-SELECT id_produto, produto, categoria, '${CALENDARIO.inicio} 00:00:00'::timestamp
-FROM stg.cln_dim_produto
+-- SCD2 de produto: fecha alterados/removidos e abre a próxima versão.
+UPDATE public.dim_produto d
+SET data_fim = ${corte},
+    flag_atual = false,
+    data_atualizacao = clock_timestamp()
+WHERE d.flag_atual
+  AND (
+      NOT EXISTS (
+          SELECT 1 FROM stg.cln_dim_produto c WHERE c.id_produto = d.id_produto
+      )
+      OR EXISTS (
+          SELECT 1 FROM stg.cln_dim_produto c
+          WHERE c.id_produto = d.id_produto
+            AND (d.produto, d.categoria) IS DISTINCT FROM (c.produto, c.categoria)
+      )
+  );
+
+WITH versoes AS (
+    SELECT id_produto, max(versao) AS ultima_versao
+    FROM public.dim_produto
+    GROUP BY id_produto
+)
+INSERT INTO public.dim_produto
+    (id_produto, produto, categoria, data_inicio, versao, flag_atual)
+SELECT c.id_produto, c.produto, c.categoria,
+       CASE WHEN v.ultima_versao IS NULL
+            THEN '${CALENDARIO.inicio} 00:00:00'::timestamp
+            ELSE ${corte} END,
+       COALESCE(v.ultima_versao + 1, 1), true
+FROM stg.cln_dim_produto c
+LEFT JOIN versoes v USING (id_produto)
 WHERE NOT EXISTS (
     SELECT 1 FROM public.dim_produto d
-    WHERE d.id_produto = stg.cln_dim_produto.id_produto AND d.flag_atual
+    WHERE d.id_produto = c.id_produto AND d.flag_atual
 );
 
--- ---------------------------------------------------------------------------
--- dim_loja — SCD2, carga inicial (versão 1)
--- ---------------------------------------------------------------------------
-INSERT INTO public.dim_loja (id_loja, loja, cidade, estado, data_inicio)
-SELECT id_loja, loja, cidade, estado, '${CALENDARIO.inicio} 00:00:00'::timestamp
-FROM stg.cln_dim_loja
+-- SCD2 de loja.
+UPDATE public.dim_loja d
+SET data_fim = ${corte},
+    flag_atual = false,
+    data_atualizacao = clock_timestamp()
+WHERE d.flag_atual
+  AND (
+      NOT EXISTS (
+          SELECT 1 FROM stg.cln_dim_loja c WHERE c.id_loja = d.id_loja
+      )
+      OR EXISTS (
+          SELECT 1 FROM stg.cln_dim_loja c
+          WHERE c.id_loja = d.id_loja
+            AND (d.loja, d.cidade, btrim(d.estado))
+                IS DISTINCT FROM (c.loja, c.cidade, btrim(c.estado))
+      )
+  );
+
+WITH versoes AS (
+    SELECT id_loja, max(versao) AS ultima_versao
+    FROM public.dim_loja
+    GROUP BY id_loja
+)
+INSERT INTO public.dim_loja
+    (id_loja, loja, cidade, estado, data_inicio, versao, flag_atual)
+SELECT c.id_loja, c.loja, c.cidade, c.estado,
+       CASE WHEN v.ultima_versao IS NULL
+            THEN '${CALENDARIO.inicio} 00:00:00'::timestamp
+            ELSE ${corte} END,
+       COALESCE(v.ultima_versao + 1, 1), true
+FROM stg.cln_dim_loja c
+LEFT JOIN versoes v USING (id_loja)
 WHERE NOT EXISTS (
     SELECT 1 FROM public.dim_loja d
-    WHERE d.id_loja = stg.cln_dim_loja.id_loja AND d.flag_atual
+    WHERE d.id_loja = c.id_loja AND d.flag_atual
 );
 
--- ---------------------------------------------------------------------------
--- fat_vendas — resolve as surrogate keys
--- ---------------------------------------------------------------------------
--- Em stg.cln_fat_vendas, sk_produto/sk_loja ainda guardam o id CONFORMADO.
--- O join com a versão corrente da dimensão troca pelo surrogate real.
+-- Snapshot completo dos fatos. O TRUNCATE e a recarga ficam na mesma transação.
+TRUNCATE public.fat_vendas, public.fat_concorrente;
+
 INSERT INTO public.fat_vendas
     (id_venda, sk_produto, sk_loja, data, quantidade, valor_venda, id_estado_civil)
 SELECT c.id_venda, p.sk_produto, l.sk_loja, c.data, c.quantidade,
        c.valor_venda, c.id_estado_civil
 FROM stg.cln_fat_vendas c
-JOIN public.dim_produto p ON p.id_produto = c.sk_produto AND p.flag_atual
-JOIN public.dim_loja    l ON l.id_loja    = c.sk_loja    AND l.flag_atual;
+JOIN public.dim_produto p
+  ON p.id_produto = c.sk_produto
+ AND c.data::timestamp >= p.data_inicio
+ AND c.data::timestamp <  p.data_fim
+JOIN public.dim_loja l
+  ON l.id_loja = c.sk_loja
+ AND c.data::timestamp >= l.data_inicio
+ AND c.data::timestamp <  l.data_fim;
 
--- ---------------------------------------------------------------------------
--- fat_concorrente
--- ---------------------------------------------------------------------------
--- ATENÇÃO: quantidade é sempre 0 — a fonte é faturamento mensal agregado e não
--- mede unidades. SUM(quantidade) aqui NÃO significa "vendeu zero".
+-- A fonte concorrente é mensal e não mede produto nem quantidade.
 INSERT INTO public.fat_concorrente
     (id_concorrente, data, sk_produto, quantidade, valor_venda)
 SELECT c.id_concorrente, c.data, p.sk_produto, c.quantidade, c.valor_venda
 FROM stg.cln_fat_concorrente c
-JOIN public.dim_produto p ON p.id_produto = c.sk_produto AND p.flag_atual;
+JOIN public.dim_produto p
+  ON p.id_produto = c.sk_produto
+ AND c.data::timestamp >= p.data_inicio
+ AND c.data::timestamp <  p.data_fim;
+
+-- Falhar aqui desfaz também o TRUNCATE e todas as alterações SCD2.
+DO $$
+DECLARE
+    esperado_vendas integer;
+    obtido_vendas integer;
+    esperado_conc integer;
+    obtido_conc integer;
+    esperado_produtos integer;
+    atual_produtos integer;
+    esperado_lojas integer;
+    atual_lojas integer;
+BEGIN
+    SELECT count(*) INTO esperado_vendas FROM stg.cln_fat_vendas;
+    SELECT count(*) INTO obtido_vendas FROM public.fat_vendas;
+    SELECT count(*) INTO esperado_conc FROM stg.cln_fat_concorrente;
+    SELECT count(*) INTO obtido_conc FROM public.fat_concorrente;
+    SELECT count(*) INTO esperado_produtos FROM stg.cln_dim_produto;
+    SELECT count(*) INTO atual_produtos FROM public.dim_produto WHERE flag_atual;
+    SELECT count(*) INTO esperado_lojas FROM stg.cln_dim_loja;
+    SELECT count(*) INTO atual_lojas FROM public.dim_loja WHERE flag_atual;
+
+    IF esperado_vendas <> obtido_vendas THEN
+        RAISE EXCEPTION 'fat_vendas: % esperadas, % carregadas',
+                        esperado_vendas, obtido_vendas;
+    END IF;
+    IF esperado_conc <> obtido_conc THEN
+        RAISE EXCEPTION 'fat_concorrente: % esperadas, % carregadas',
+                        esperado_conc, obtido_conc;
+    END IF;
+    IF esperado_produtos <> atual_produtos THEN
+        RAISE EXCEPTION 'dim_produto: % correntes esperadas, % obtidas',
+                        esperado_produtos, atual_produtos;
+    END IF;
+    IF esperado_lojas <> atual_lojas THEN
+        RAISE EXCEPTION 'dim_loja: % correntes esperadas, % obtidas',
+                        esperado_lojas, atual_lojas;
+    END IF;
+    IF EXISTS (SELECT 1 FROM stg.vw_check_reconciliacao WHERE diferenca <> 0) THEN
+        RAISE EXCEPTION 'reconciliação raw = cln + rejeitados falhou';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM public.fat_vendas f
+        JOIN public.dim_produto p ON p.sk_produto = f.sk_produto
+        WHERE p.id_produto = ${PRODUTO_SENTINELA.id_produto}
+    ) THEN
+        RAISE EXCEPTION 'produto sentinela apareceu em fat_vendas';
+    END IF;
+END $$;
+
+UPDATE stg.etl_carga
+SET status = 'concluida',
+    finalizado_em = clock_timestamp(),
+    resumo = resumo || jsonb_build_object(
+        'carregado_fat_vendas', (SELECT count(*) FROM public.fat_vendas),
+        'carregado_fat_concorrente', (SELECT count(*) FROM public.fat_concorrente)
+    )
+WHERE id_carga = ${lit(idCarga)}::uuid;
 
 COMMIT;
 
+SELECT id_carga, status, iniciado_em, finalizado_em, resumo
+FROM stg.etl_carga
+WHERE id_carga = ${lit(idCarga)}::uuid;
 
--- ===========================================================================
--- Conferência pós-carga
--- ===========================================================================
--- Toda linha limpa tem que ter chegado ao destino. Se alguma some no join de
--- surrogate key, é de-para incompleto — e some em silêncio, que é o pior modo
--- de falha possível numa carga.
-DO $$
-DECLARE
-    esperado_vendas int;
-    obtido_vendas   int;
-    esperado_conc   int;
-    obtido_conc     int;
-BEGIN
-    SELECT count(*) INTO esperado_vendas FROM stg.cln_fat_vendas;
-    SELECT count(*) INTO obtido_vendas   FROM public.fat_vendas;
-    SELECT count(*) INTO esperado_conc   FROM stg.cln_fat_concorrente;
-    SELECT count(*) INTO obtido_conc     FROM public.fat_concorrente;
-
-    IF esperado_vendas <> obtido_vendas THEN
-        RAISE EXCEPTION 'fat_vendas: % linhas limpas, % carregadas (% perdidas no join de SK)',
-                        esperado_vendas, obtido_vendas, esperado_vendas - obtido_vendas;
-    END IF;
-    IF esperado_conc <> obtido_conc THEN
-        RAISE EXCEPTION 'fat_concorrente: % linhas limpas, % carregadas',
-                        esperado_conc, obtido_conc;
-    END IF;
-
-    RAISE NOTICE 'carga conferida: % vendas, % concorrente', obtido_vendas, obtido_conc;
-END $$;
-
--- Panorama do que entrou.
-SELECT 'dim_produto'      AS tabela, count(*) FROM public.dim_produto
-UNION ALL SELECT 'dim_loja',         count(*) FROM public.dim_loja
+SELECT 'dim_produto' AS tabela, count(*) AS linhas FROM public.dim_produto
+UNION ALL SELECT 'dim_loja', count(*) FROM public.dim_loja
 UNION ALL SELECT 'dim_estado_civil', count(*) FROM public.dim_estado_civil
-UNION ALL SELECT 'dim_data',         count(*) FROM public.dim_data
-UNION ALL SELECT 'fat_vendas',       count(*) FROM public.fat_vendas
-UNION ALL SELECT 'fat_concorrente',  count(*) FROM public.fat_concorrente
+UNION ALL SELECT 'dim_data', count(*) FROM public.dim_data
+UNION ALL SELECT 'fat_vendas', count(*) FROM public.fat_vendas
+UNION ALL SELECT 'fat_concorrente', count(*) FROM public.fat_concorrente
 ORDER BY 1;
 
--- O que ficou de fora, e por quê.
 SELECT destino, fonte, motivo, count(*) AS linhas
 FROM stg.rej_carga
+WHERE id_carga = ${lit(idCarga)}::uuid
 GROUP BY 1, 2, 3
 ORDER BY 4 DESC;
 
--- Sanidade da chave decodificável: o id_venda tem que devolver a loja certa.
 SELECT (f.id_venda / ${FATOR_LOJA})::int AS id_loja_decodificado,
        l.id_loja AS id_loja_dimensao,
-       count(*)  AS linhas
+       count(*) AS linhas
 FROM public.fat_vendas f
 JOIN public.dim_loja l ON l.sk_loja = f.sk_loja
 GROUP BY 1, 2
 ORDER BY 1;
--- as duas primeiras colunas TÊM que ser iguais em toda linha do resultado.
-
--- Produto sentinela: confirme que ele só aparece em fat_concorrente.
-SELECT count(*) AS vendas_com_sentinela_deve_ser_zero
-FROM public.fat_vendas f
-JOIN public.dim_produto p ON p.sk_produto = f.sk_produto
-WHERE p.id_produto = ${PRODUTO_SENTINELA.id_produto};
 `;
 }
