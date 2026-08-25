@@ -88,21 +88,21 @@ Para 6.621 linhas o custo de armazenamento e processamento é desprezível.
 **Contra:** exige acesso de escrita (`DATABASE_URL` com psycopg, ou o SQL editor
 do dashboard), já que o MCP é read-only.
 
-### Opção B — staging local (pandas / DuckDB), só o resultado sobe
+### Opção B — processamento local, só o resultado sobe
 
 **A favor:** o parsing do Oracle SQL, do JSON aninhado e do XLSX é mais natural
-em Python do que em SQL. Não precisa de escrita no Supabase até o fim.
+em código do que em SQL. Não precisa de escrita no Supabase até o fim.
 
 **Contra:** o de-para e as regras de conformação ficam em código, não em dados
 consultáveis — mais difícil de auditar e de justificar no trabalho.
 
 ### Recomendação híbrida
 
-Na prática o melhor é **B para extrair, A para transformar**: um script Python
-faz apenas o parsing bruto dos 8 arquivos e despeja em `stg.raw_*` **sem
-transformar nada** (tudo `text`, zero constraint); daí para frente tudo é SQL
-dentro do banco. Isso põe o parsing onde ele é fácil e a lógica de negócio onde
-ela é auditável.
+Foi implementado um híbrido auditável: Node.js sem dependências faz o parsing e
+a conformação determinística, gera `raw/map/cln/rej` em SQL e registra manifesto,
+hashes e decisões no banco. A publicação dimensional, o SCD2 e a reconciliação
+final executam transacionalmente no PostgreSQL. Assim, as regras ficam
+versionadas no repositório e cada lote continua consultável no Supabase.
 
 ---
 
@@ -256,35 +256,32 @@ de 2024 ficam fora da vigência da versão 1, o que não quebra FK (a FK é sobr
 
 ---
 
-## Decisões pendentes
+## Decisões implementadas
 
-Itens que precisam de escolha explícita antes de escrever o ETL:
+Decisões consolidadas no ETL local:
 
-- [ ] **Onde rodar o staging** — opção A, B ou híbrida (recomendada)
-- [ ] **Semântica de `valor_venda`** — total da linha (`quantidade × unitário`)
-      ou preço unitário? Não há `COMMENT` no banco definindo isso. Assumindo
-      total, é o que faz as métricas serem aditivas
-- [ ] **Membro `Não informado` em `dim_estado_civil`** — criar (e carregar os
-      193 itens da Feira) ou rejeitar essas linhas?
-- [ ] **Categoria dos 5 produtos sem categoria no Salvador** — herdar das outras
-      fontes (4 dos 5 têm) ou marcar `Não informado`?
-- [ ] **Duplicatas de produto no Itabuna** — qual das duas linhas vale para
-      `Tapete Higiênico Premium` (ids 1 e 10) e `Corda Mordedor` (ids 3 e 13)?
-- [ ] **Os 3 bloqueios de modelagem** de [07](07-bloqueios-de-modelagem.md), que
-      mudam o DDL do DW
+- [x] **Staging híbrido** — parsing/conformação em Node.js e camadas
+      `raw/map/cln/rej` no schema privado `stg`.
+- [x] **`valor_venda`** — total da linha (`quantidade × valor unitário`), para
+      manter a medida aditiva.
+- [x] **Membro `Não informado`** — criado para preservar os 193 itens da Feira.
+- [x] **Categorias ausentes de Salvador** — herdadas das demais fontes.
+- [x] **Duplicatas de produto no Itabuna** — os ids duplicados convergem no
+      catálogo conformado para
+      `Tapete Higiênico Premium` (ids 1 e 10) e `Corda Mordedor` (ids 3 e 13).
+- [x] **Modelo de destino preservado** — a PK de item é codificada, e o fato
+      concorrente usa membros sentinela documentados. As limitações analíticas
+      permanecem registradas em [07](07-bloqueios-de-modelagem.md).
 
 ## Pendências de infraestrutura
 
-- [ ] **Versionar o DDL do DW no repositório.** Hoje
-      `supabase_migrations.schema_migrations` está **vazia** — o modelo existe
-      só dentro do projeto Supabase. Se o projeto for perdido ou alterado por
-      engano, não há como reconstruir, e não há histórico do que as colunas
-      removidas eram (ver
-      [01](01-modelo-dimensional.md#rastros-de-versões-anteriores-do-modelo)).
-      Extrair o DDL para `sql/` e passar a aplicar mudanças por migration.
-- [ ] **Adicionar `COMMENT`** nas tabelas e nas colunas ambíguas
+- [x] **Versionar o DDL localmente.** O estado base está em `sql/01`, e a
+      preparação idempotente do banco existente está em `sql/00_preflight.sql`.
+- [ ] **Registrar no histórico remoto.** A aplicação ainda depende da conexão
+      com o projeto Supabase correto; nenhum outro projeto deve ser usado.
+- [x] **Adicionar `COMMENT`** nas tabelas e nas colunas ambíguas
       (`valor_venda`, `quadrimestre`, `id_produto` como chave natural global).
-      A semântica hoje é 100% implícita.
-- [ ] **Checklist de segurança** de
+      O preflight deixa essas convenções explícitas no catálogo.
+- [x] **Checklist de segurança local** de
       [04](04-seguranca-e-acesso.md#checklist-recomendado-antes-da-primeira-carga)
       — em especial mover `btree_gist` **enquanto as tabelas estão vazias**.

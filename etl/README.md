@@ -1,30 +1,39 @@
 # ETL — fontes → staging → DW
 
 Lê os 8 arquivos de [`../data`](../data), deriva o catálogo conformado e **gera
-SQL** em `../sql/generated/`. Não escreve no banco.
+SQL** em `../sql/generated/`. A gravação no Supabase é feita separadamente por
+[`deploy.mjs`](deploy.mjs), com uma trava para o projeto correto.
 
 ## Rodar
 
 ```bash
 node etl/main.mjs          # gera os SQL e imprime o relatório
 node etl/main.mjs --dry    # só o relatório, não escreve arquivo
+node --test --test-isolation=none
 ```
 
 **Zero dependências** — só a stdlib do Node (testado no v24). Não precisa de
 `npm install`. O `.xlsx` é lido com `zlib` + parser de ZIP próprio
 ([`lib/zip.mjs`](lib/zip.mjs)) em vez de uma biblioteca externa.
 
-Depois, no banco (o MCP é `--read-only`, então use o SQL editor do dashboard ou
-`psql` com a `DATABASE_URL` do `.env`):
+Depois, no banco:
 
 ```
-sql/01_dw_ddl.sql              # só se o DW ainda não existir
+sql/00_preflight.sql           # corrige/valida o OLAP informado
 sql/02_stg_ddl.sql             # cria o schema stg
 sql/generated/10_stg_raw.sql
 sql/generated/20_stg_map.sql
 sql/generated/30_stg_cln.sql
 sql/generated/40_load_dw.sql
 ```
+
+Ou execute toda a sequência com `npm run deploy -- --project-ref <REF>
+--database-url "<SESSION_POOLER_SEM_SENHA>" --yes`. O script confere rigorosamente
+o host e o usuário da conexão, pede a senha sem gravá-la e interrompe no primeiro
+erro SQL.
+
+Cada geração também cria `manifest.json`, contendo `id_carga`, data efetiva,
+hash SHA-256 e tamanho de cada fonte.
 
 ## Arquitetura
 
@@ -100,10 +109,27 @@ Avisa (mas segue) quando: contagem de arquivo diverge do esperado, categoria
 diverge entre fontes, grafia não pôde ser confirmada, produto duplicado,
 telefone com DDD inesperado, `valor_total` divergente.
 
-Linhas individuais que não podem virar fato vão para `stg.rej_carga` com o
-motivo, em vez de sumir. `40_load_dw.sql` termina com um `DO $$` que **falha se
-alguma linha limpa não chegar ao destino** — perda silenciosa no join de
-surrogate key é o pior modo de falha de uma carga.
+Linhas individuais que não podem virar fato vão para `stg.rej_carga`, ligadas ao
+`id_carga`, com o motivo. `40_load_dw.sql` valida **antes do COMMIT** e qualquer
+divergência desfaz fatos e dimensões no mesmo rollback.
+
+## Reprocessamento e SCD2
+
+Produto e loja são SCD tipo 2. Uma mudança fecha a versão corrente na data
+efetiva do lote e abre `versao + 1`; remoções fecham a versão sem criar outra.
+Os fatos procuram a SK cuja vigência contém a data da venda, preservando o
+histórico. Reexecutar o mesmo lote não cria versões adicionais.
+
+As tabelas de fato são snapshots completos: são truncadas e recarregadas dentro
+da mesma transação. Isso é deliberado para as fontes atuais, que são arquivos
+completos e pequenos. Para fontes futuras incrementais, a estratégia deve mudar
+para watermark/upsert por partição.
+
+## Limite conhecido da fonte concorrente
+
+O XLSX concorrente não contém produto nem quantidade. O membro `Não aplicável`
+e a quantidade `0` representam **não medido**, não zero unidades. Portanto só a
+comparação de valor entre empresa e concorrente é válida com os dados fornecidos.
 
 ## Regenerar
 

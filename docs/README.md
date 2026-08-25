@@ -1,8 +1,9 @@
 # Documentação — Data Warehouse PetShop
 
-Documentação do banco OLAP e das fontes de dados do projeto.
-Gerada por inspeção direta do banco (catálogos `pg_*` / `information_schema`)
-e leitura integral dos arquivos em [`data/`](../data), em **2026-08-20**.
+Documentação do banco OLAP e das fontes de dados do projeto. Os documentos 01–05
+preservam o diagnóstico estrutural inicial; o estado executável atual está nos
+SQLs e no ETL versionados no repositório. Nenhum projeto Supabase remoto foi
+alterado durante esta preparação.
 
 ## Índice
 
@@ -16,31 +17,36 @@ e leitura integral dos arquivos em [`data/`](../data), em **2026-08-20**.
 | [06-ingestao-e-staging.md](06-ingestao-e-staging.md) | Decisão sobre staging, schema proposto, ordem de carga |
 | [07-bloqueios-de-modelagem.md](07-bloqueios-de-modelagem.md) | Incompatibilidades entre modelo e fonte que exigem decisão |
 
-## Resumo do estado atual
+## Estado local preparado
 
 | Item | Valor |
 |---|---|
 | Plataforma | Supabase (PostgreSQL **17.6**) |
-| Project ref | `ahoxobyduzludlgxtpsx` |
-| API URL | `https://ahoxobyduzludlgxtpsx.supabase.co` |
-| Schemas de aplicação | `public` (apenas) |
+| Projeto remoto | identificado; API disponível, conexão PostgreSQL aguardando liberação/string exata do Session pooler |
+| Schemas de aplicação | `public` + staging privado `stg` |
 | Tabelas | 6 — 4 dimensões, 2 fatos |
 | Views | 2 (`vw_dim_produto_atual`, `vw_dim_loja_atual`) |
-| Linhas | **0 em todas as tabelas** — estrutura pronta, sem dados |
-| Migrations versionadas | **nenhuma** (DDL aplicado ad-hoc, fora do controle de versão) |
-| Schema de staging | **não existe** — proposta em [06](06-ingestao-e-staging.md) |
+| Artefatos locais | preflight, staging, ETL SCD2, testes e executor `etl/deploy.mjs` |
+| Histórico remoto | pendente de aplicação no projeto correto |
+| Schema de staging | implementado em [`sql/02_stg_ddl.sql`](../sql/02_stg_ddl.sql) |
 | Fontes a carregar | 4 (Salvador, Itabuna, Feira de Santana, Concorrente) |
 | Volume no grão de item | **6.621 linhas** + 24 linhas de concorrente |
 
-## Leia isto primeiro
+## Decisões aplicadas
 
-Três coisas travam a carga hoje e **não** se resolvem no ETL — exigem mudança de DDL:
+Os bloqueios do diagnóstico foram tratados sem mudar o conjunto de colunas do
+OLAP informado:
 
-1. **`fat_vendas` tem PK em `id_venda`, mas grão de item.** As fontes têm 6.621 itens em 1.900 vendas, e `id_venda` colide entre as três lojas. Ver [07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão).
-2. **`fat_concorrente` não tem como receber a fonte.** O XLSX é faturamento mensal agregado, sem produto e sem quantidade — colunas que a tabela exige `NOT NULL`. Ver [07](07-bloqueios-de-modelagem.md#2-fat_concorrente--fonte-incompatível-com-o-modelo).
-3. **`dim_produto` tem chave natural global**, mas o mesmo `id_produto` significa produtos diferentes em cada fonte. Ver [05](05-fontes-de-dados.md#colisão-de-chaves-naturais-de-produto).
+1. **`fat_vendas.id_venda`** recebe uma chave determinística por loja, pedido e
+   sequência do item, preservando as 6.621 linhas.
+2. **Concorrente** usa produto sentinela e quantidade zero documentada como
+   “não medido”; somente a comparação de valores é válida.
+3. **Produtos** passam por catálogo conformado e de-para por fonte.
+4. **Produto e loja** usam SCD2 com lookup temporal na carga dos fatos.
+5. **Segurança** é aplicada por `00_preflight.sql`: RLS, índices de FK,
+   `security_invoker` na instalação limpa e ausência de função privilegiada em
+   `public`.
 
-E duas de segurança, relevantes assim que houver dado:
-
-4. **As duas views furam o RLS** e são legíveis pelo papel `anon`. Ver [04](04-seguranca-e-acesso.md#1-as-views-contornam-o-rls-erro).
-5. **Nenhuma política RLS existe.** As tabelas estão fechadas hoje por ausência de política, não por falta de grant — os grants estão totalmente abertos. Ver [04](04-seguranca-e-acesso.md#2-grants-abertos-rls-como-única-barreira).
+As alternativas ideais de remodelagem continuam discutidas em
+[07-bloqueios-de-modelagem.md](07-bloqueios-de-modelagem.md), mas não são
+pré-requisito para executar o ETL atual.
