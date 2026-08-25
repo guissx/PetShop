@@ -47,10 +47,18 @@ function melhorGrafia(variantes) {
 export function paraIso(s) {
   if (s == null) return null;
   const t = String(s).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  let ano, mes, dia;
+  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) [, ano, mes, dia] = iso;
   const br = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
-  return null;
+  if (br) [, dia, mes, ano] = br;
+  if (!ano) return null;
+
+  const d = new Date(Date.UTC(Number(ano), Number(mes) - 1, Number(dia)));
+  if (d.getUTCFullYear() !== Number(ano) ||
+      d.getUTCMonth() + 1 !== Number(mes) ||
+      d.getUTCDate() !== Number(dia)) return null;
+  return `${ano}-${mes}-${dia}`;
 }
 
 const doisDigitos = n => String(n).padStart(2, '0');
