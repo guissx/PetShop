@@ -23,6 +23,15 @@ BEGIN
     END LOOP;
 END $$;
 
+-- As views dependem das colunas alteradas abaixo, e `ALTER COLUMN ... TYPE` é
+-- recusado mesmo quando o tipo já está correto:
+--   ERROR: cannot alter type of a column used by a view or rule
+-- Derrubar aqui e recriar no fim é o que torna este script realmente idempotente.
+-- A recriação também é a oportunidade de corrigir o `security_invoker` (ver o
+-- bloco no fim do arquivo).
+DROP VIEW IF EXISTS public.vw_dim_produto_atual;
+DROP VIEW IF EXISTS public.vw_dim_loja_atual;
+
 -- `character` sem tamanho é char(1), mas o ETL carrega a UF `BA`.
 ALTER TABLE public.dim_loja
     ALTER COLUMN estado TYPE character(2) USING btrim(estado)::character(2);
@@ -121,6 +130,33 @@ ALTER TABLE public.fat_concorrente  ENABLE ROW LEVEL SECURITY;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 ON public.dim_produto, public.dim_loja, public.dim_estado_civil,
    public.dim_data, public.fat_vendas, public.fat_concorrente
+FROM anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Recriação das views derrubadas no início
+-- ---------------------------------------------------------------------------
+-- `security_invoker = true` é obrigatório aqui. Sem ele a view executa com os
+-- privilégios do dono (postgres), que ignora o RLS das tabelas — nenhuma delas
+-- tem FORCE ROW LEVEL SECURITY. Como as views são auto-atualizáveis (SELECT
+-- simples de uma tabela só) e anon tinha UPDATE/DELETE nelas, existia um
+-- caminho de escrita anônimo para dim_produto e dim_loja pela Data API,
+-- contornando tanto o RLS quanto o REVOKE acima, que só cobre as tabelas.
+CREATE VIEW public.vw_dim_produto_atual
+WITH (security_invoker = true) AS
+SELECT sk_produto, id_produto, produto, categoria
+FROM public.dim_produto
+WHERE flag_atual;
+
+CREATE VIEW public.vw_dim_loja_atual
+WITH (security_invoker = true) AS
+SELECT sk_loja, id_loja, loja, cidade, estado
+FROM public.dim_loja
+WHERE flag_atual;
+
+-- Recriar a view zera a ACL, e o ALTER DEFAULT PRIVILEGES do Supabase volta a
+-- conceder para anon/authenticated. O REVOKE tem que vir depois do CREATE.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+ON public.vw_dim_produto_atual, public.vw_dim_loja_atual
 FROM anon, authenticated;
 
 COMMENT ON COLUMN public.dim_loja.estado IS 'UF com duas posições, por exemplo BA.';
