@@ -254,10 +254,21 @@ CREATE TABLE IF NOT EXISTS stg.cln_dim_estado_civil (
     estado_civil     varchar(30) NOT NULL UNIQUE
 );
 
+-- MIGRACAO: a camada cln mudou de grao (data diaria -> id_data quadrimestral).
+-- `CREATE TABLE IF NOT EXISTS` nao altera tabela existente, entao as tres
+-- tabelas afetadas sao derrubadas e recriadas. Nao ha perda: cln_* e 100%
+-- derivada de raw_* + map_* e e TRUNCADA a cada carga de qualquer forma.
+DROP TABLE IF EXISTS stg.cln_dim_data;
+DROP TABLE IF EXISTS stg.cln_fat_vendas;
+DROP TABLE IF EXISTS stg.cln_fat_concorrente;
+
+-- Grao QUADRIMESTRAL, igual ao destino: 6 linhas para 2024-2025.
+-- id_data e surrogate sequencial 1..N fornecido pelo ETL.
 CREATE TABLE IF NOT EXISTS stg.cln_dim_data (
-    data          date     NOT NULL PRIMARY KEY,
+    id_data       integer  NOT NULL PRIMARY KEY,
     ano           smallint NOT NULL,
-    quadrimestre  smallint NOT NULL CHECK (quadrimestre BETWEEN 1 AND 3)
+    quadrimestre  smallint NOT NULL CHECK (quadrimestre BETWEEN 1 AND 3),
+    CONSTRAINT uq_cln_dim_data_ano_quad UNIQUE (ano, quadrimestre)
 );
 
 -- -----------------------------------------------------------------------------
@@ -267,6 +278,12 @@ CREATE TABLE IF NOT EXISTS stg.cln_fat_vendas (
     id_venda          bigint        NOT NULL PRIMARY KEY,
     sk_produto        bigint        NOT NULL,
     sk_loja           bigint        NOT NULL,
+    id_data           integer       NOT NULL,
+    -- `data` NAO vai para o destino: public e quadrimestral. Ela fica aqui
+    -- porque o lookup SCD2 precisa da data REAL do fato para achar a versao
+    -- vigente de produto e loja — e porque e o que permite reconciliar a carga
+    -- com a origem. E o unico lugar do pipeline onde a data da venda sobrevive
+    -- de forma consultavel.
     data              date          NOT NULL,
     quantidade        integer       NOT NULL CHECK (quantidade > 0),
     valor_venda       numeric(14,2) NOT NULL CHECK (valor_venda >= 0),
@@ -278,15 +295,24 @@ CREATE TABLE IF NOT EXISTS stg.cln_fat_vendas (
     id_produto_origem int           NOT NULL
 );
 
+-- A fonte e MENSAL (24 linhas) e o destino e QUADRIMESTRAL (6 linhas): esta
+-- camada ja recebe o dado AGREGADO pelo conformador. O detalhe mensal existe
+-- somente em stg.raw_concorrente.
 CREATE TABLE IF NOT EXISTS stg.cln_fat_concorrente (
     id_concorrente  bigint        NOT NULL PRIMARY KEY,
-    data            date          NOT NULL,
+    id_data         integer       NOT NULL,
     sk_produto      bigint        NOT NULL,
     quantidade      integer       NOT NULL CHECK (quantidade >= 0),
     valor_venda     numeric(14,2) NOT NULL CHECK (valor_venda >= 0),
     -- rastreio
     ano             smallint      NOT NULL,
-    mes             smallint      NOT NULL CHECK (mes BETWEEN 1 AND 12)
+    quadrimestre    smallint      NOT NULL CHECK (quadrimestre BETWEEN 1 AND 3),
+    -- quantos meses da origem entraram nesta linha; a soma tem que dar 24
+    meses_agregados smallint      NOT NULL CHECK (meses_agregados > 0),
+    -- primeiro dia do quadrimestre; existe SO para ancorar o lookup SCD2 do
+    -- produto sentinela. Nao vai para o destino.
+    data_referencia date          NOT NULL,
+    CONSTRAINT uq_cln_conc_grao UNIQUE (id_data, sk_produto)
 );
 
 
@@ -395,13 +421,42 @@ LEFT JOIN stg.map_estado_civil_origem m
        ON m.valor_origem = COALESCE(c.estado_civil, '(nulo)')
 WHERE m.id_conformado IS NULL;
 
--- Datas da fonte fora do calendário carregado em dim_data: violariam a FK.
+-- Fatos apontando para quadrimestre inexistente em dim_data: violariam a FK.
 CREATE OR REPLACE VIEW stg.vw_check_data_fora_calendario
 WITH (security_invoker = true) AS
-SELECT DISTINCT f.data
+SELECT DISTINCT f.id_data, f.data
 FROM stg.cln_fat_vendas f
-LEFT JOIN stg.cln_dim_data d ON d.data = f.data
-WHERE d.data IS NULL;
+LEFT JOIN stg.cln_dim_data d ON d.id_data = f.id_data
+WHERE d.id_data IS NULL
+UNION
+SELECT DISTINCT c.id_data, c.data_referencia
+FROM stg.cln_fat_concorrente c
+LEFT JOIN stg.cln_dim_data d ON d.id_data = c.id_data
+WHERE d.id_data IS NULL;
+
+-- Coerencia do id_data derivado: o quadrimestre gravado no fato tem que bater
+-- com o que a data real diz. Pega erro de derivacao no conformador.
+CREATE OR REPLACE VIEW stg.vw_check_quadrimestre_derivado
+WITH (security_invoker = true) AS
+SELECT f.id_data, f.data, d.ano, d.quadrimestre, count(*) AS linhas
+FROM stg.cln_fat_vendas f
+JOIN stg.cln_dim_data d ON d.id_data = f.id_data
+WHERE d.ano <> EXTRACT(YEAR FROM f.data)::smallint
+   OR d.quadrimestre <> CEIL(EXTRACT(MONTH FROM f.data) / 4.0)::smallint
+GROUP BY 1, 2, 3, 4;
+
+-- Agregacao do concorrente: 24 meses da origem tem que virar 6 quadrimestres
+-- sem perder linha nem dinheiro. E o unico ponto do pipeline onde N vira 1.
+CREATE OR REPLACE VIEW stg.vw_check_agregacao_concorrente
+WITH (security_invoker = true) AS
+SELECT r.id_carga,
+       count(*)                                                    AS meses_raw,
+       (SELECT sum(meses_agregados) FROM stg.cln_fat_concorrente)  AS meses_contabilizados,
+       (SELECT count(*) FROM stg.cln_fat_concorrente)              AS quadrimestres_cln,
+       count(*) - (SELECT sum(meses_agregados) FROM stg.cln_fat_concorrente) AS diferenca
+FROM stg.raw_concorrente r
+GROUP BY r.id_carga;
+-- `diferenca` DEVE ser 0.
 
 -- Reconciliação de volume: o que saiu da fonte tem que fechar com cln + rej.
 -- Esperado: 6.621 itens no total (3.166 Salvador + 1.757 Itabuna + 1.698 Feira).

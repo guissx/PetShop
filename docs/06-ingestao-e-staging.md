@@ -227,26 +227,33 @@ isso é aceitável. Mas é bom saber que a proteção não se estende sozinha; s
 A ordem é imposta pelas FKs — nenhuma escolha aqui:
 
 ```
-1. dim_data          -- gerar calendário 2024-01-01 .. 2025-12-31 (731 linhas)
+1. dim_data          -- gerar 3 quadrimestres por ano, 2024-2025 (6 linhas)
 2. dim_estado_civil  -- 5 rótulos conformados (+ 'Não informado')
 3. dim_produto       -- 17 produtos do catálogo conformado
 4. dim_loja          -- 3 lojas
    ------------------ barreira: SKs precisam existir --------------------
 5. fat_vendas        -- lookup (fonte, id_origem) -> id_conformado -> sk_atual
-6. fat_concorrente   -- depende do redesenho, ver 07
+6. fat_concorrente   -- 24 meses agregados em 6 quadrimestres, ver 07
 ```
 
-`dim_data` primeiro e completo: os fatos têm FK obrigatória para lá, e gerar o
-calendário inteiro (731 linhas) é mais simples e mais robusto que gerar só as
-~700 datas distintas observadas.
+`dim_data` primeiro e completo: os fatos têm FK obrigatória para lá, e gerar
+todos os quadrimestres dos anos cobertos é mais simples e mais robusto que
+gerar só os observados.
+
+O grão é **quadrimestral** e a PK é `id_data`, surrogate sequencial fornecido
+pelo ETL — ver [07](07-bloqueios-de-modelagem.md#3-dim_data--grão-quadrimestral).
+Quem gera é [`etl/conform.mjs`](../etl/conform.mjs) (`gerarCalendario`), não o
+SQL, porque o `id_data` precisa ser atribuído no mesmo lugar em que os fatos o
+resolvem:
 
 ```sql
-INSERT INTO dim_data (data, ano, quadrimestre)
-SELECT d::date,
-       EXTRACT(YEAR FROM d)::smallint,
-       CEIL(EXTRACT(MONTH FROM d) / 4.0)::smallint
-FROM generate_series('2024-01-01'::date, '2025-12-31'::date, '1 day') d;
+INSERT INTO dim_data (id_data, ano, quadrimestre) VALUES
+  (1, 2024, 1), (2, 2024, 2), (3, 2024, 3),
+  (4, 2025, 1), (5, 2025, 2), (6, 2025, 3);
 ```
+
+O fato guarda `id_data`; a data real da venda fica em `stg.cln_fat_vendas`,
+onde ainda é necessária para o lookup temporal do SCD2.
 
 Para a carga inicial das dimensões SCD2, `data_inicio` deve ser uma data de
 corte única e explícita (ex.: `2024-01-01 00:00:00`), não `now()` — assim as

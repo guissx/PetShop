@@ -228,18 +228,19 @@ END $$;\n`);
   p.push(inserts('stg.cln_dim_estado_civil', ['id_estado_civil', 'estado_civil'],
     c.estadoCivil.dominio.map(x => ({ id_estado_civil: x.id, estado_civil: x.rotulo }))));
 
-  p.push(`-- calendário completo ${CALENDARIO.inicio} .. ${CALENDARIO.fim}`);
-  p.push(inserts('stg.cln_dim_data', ['data', 'ano', 'quadrimestre'], c.calendario));
+  p.push(`-- calendário quadrimestral cobrindo ${CALENDARIO.inicio} .. ${CALENDARIO.fim}`);
+  p.push(inserts('stg.cln_dim_data', ['id_data', 'ano', 'quadrimestre'], c.calendario));
 
   p.push('-- fatos de venda (sk_produto/sk_loja ainda como ids conformados)');
   p.push(inserts('stg.cln_fat_vendas',
-    ['id_venda', 'sk_produto', 'sk_loja', 'data', 'quantidade', 'valor_venda',
+    ['id_venda', 'sk_produto', 'sk_loja', 'id_data', 'data', 'quantidade', 'valor_venda',
      'id_estado_civil', 'fonte', 'id_venda_origem', 'seq_item', 'id_produto_origem'],
     c.fatos.map(f => ({ ...f, sk_produto: f.id_produto, sk_loja: f.id_loja }))));
 
-  p.push('-- fato do concorrente (produto sentinela, quantidade 0)');
+  p.push('-- fato do concorrente (produto sentinela, quantidade 0, meses ja agregados)');
   p.push(inserts('stg.cln_fat_concorrente',
-    ['id_concorrente', 'data', 'sk_produto', 'quantidade', 'valor_venda', 'ano', 'mes'],
+    ['id_concorrente', 'id_data', 'sk_produto', 'quantidade', 'valor_venda',
+     'ano', 'quadrimestre', 'meses_agregados', 'data_referencia'],
     c.concorrente.map(f => ({ ...f, sk_produto: f.id_produto }))));
 
   if (c.rejeitos.length) {
@@ -314,9 +315,9 @@ BEGIN
 END $$;
 
 -- Dimensões estáticas.
-INSERT INTO public.dim_data (data, ano, quadrimestre)
-SELECT data, ano, quadrimestre FROM stg.cln_dim_data
-ON CONFLICT (data) DO UPDATE SET
+INSERT INTO public.dim_data (id_data, ano, quadrimestre)
+SELECT id_data, ano, quadrimestre FROM stg.cln_dim_data
+ON CONFLICT (id_data) DO UPDATE SET
     ano = EXCLUDED.ano,
     quadrimestre = EXCLUDED.quadrimestre;
 
@@ -401,9 +402,11 @@ WHERE NOT EXISTS (
 -- Snapshot completo dos fatos. O TRUNCATE e a recarga ficam na mesma transação.
 TRUNCATE public.fat_vendas, public.fat_concorrente;
 
+-- c.data NAO vai para o destino: o DW e quadrimestral. Ela e usada aqui apenas
+-- como ancora temporal do lookup SCD2, que precisa da data real do fato.
 INSERT INTO public.fat_vendas
-    (id_venda, sk_produto, sk_loja, data, quantidade, valor_venda, id_estado_civil)
-SELECT c.id_venda, p.sk_produto, l.sk_loja, c.data, c.quantidade,
+    (id_venda, sk_produto, sk_loja, id_data, quantidade, valor_venda, id_estado_civil)
+SELECT c.id_venda, p.sk_produto, l.sk_loja, c.id_data, c.quantidade,
        c.valor_venda, c.id_estado_civil
 FROM stg.cln_fat_vendas c
 JOIN public.dim_produto p
@@ -415,15 +418,17 @@ JOIN public.dim_loja l
  AND c.data::timestamp >= l.data_inicio
  AND c.data::timestamp <  l.data_fim;
 
--- A fonte concorrente é mensal e não mede produto nem quantidade.
+-- A fonte concorrente é mensal e não mede produto nem quantidade. Os 24 meses
+-- ja chegam agregados em 6 quadrimestres pelo conformador; aqui e so projecao.
+-- data_referencia (1o dia do quadrimestre) ancora o lookup SCD2 do sentinela.
 INSERT INTO public.fat_concorrente
-    (id_concorrente, data, sk_produto, quantidade, valor_venda)
-SELECT c.id_concorrente, c.data, p.sk_produto, c.quantidade, c.valor_venda
+    (id_concorrente, id_data, sk_produto, quantidade, valor_venda)
+SELECT c.id_concorrente, c.id_data, p.sk_produto, c.quantidade, c.valor_venda
 FROM stg.cln_fat_concorrente c
 JOIN public.dim_produto p
   ON p.id_produto = c.sk_produto
- AND c.data::timestamp >= p.data_inicio
- AND c.data::timestamp <  p.data_fim;
+ AND c.data_referencia::timestamp >= p.data_inicio
+ AND c.data_referencia::timestamp <  p.data_fim;
 
 -- Falhar aqui desfaz também o TRUNCATE e todas as alterações SCD2.
 DO $$
@@ -436,6 +441,10 @@ DECLARE
     atual_produtos integer;
     esperado_lojas integer;
     atual_lojas integer;
+    valor_conc_cln numeric;
+    valor_conc_dw numeric;
+    meses_conc integer;
+    meses_raw integer;
 BEGIN
     SELECT count(*) INTO esperado_vendas FROM stg.cln_fat_vendas;
     SELECT count(*) INTO obtido_vendas FROM public.fat_vendas;
@@ -445,6 +454,11 @@ BEGIN
     SELECT count(*) INTO atual_produtos FROM public.dim_produto WHERE flag_atual;
     SELECT count(*) INTO esperado_lojas FROM stg.cln_dim_loja;
     SELECT count(*) INTO atual_lojas FROM public.dim_loja WHERE flag_atual;
+    SELECT sum(valor_venda), sum(meses_agregados) INTO valor_conc_cln, meses_conc
+      FROM stg.cln_fat_concorrente;
+    SELECT sum(valor_venda) INTO valor_conc_dw FROM public.fat_concorrente;
+    SELECT count(*) INTO meses_raw FROM stg.raw_concorrente
+     WHERE id_carga = ${lit(idCarga)}::uuid;
 
     IF esperado_vendas <> obtido_vendas THEN
         RAISE EXCEPTION 'fat_vendas: % esperadas, % carregadas',
@@ -464,6 +478,16 @@ BEGIN
     END IF;
     IF EXISTS (SELECT 1 FROM stg.vw_check_reconciliacao WHERE diferenca <> 0) THEN
         RAISE EXCEPTION 'reconciliação raw = cln + rejeitados falhou';
+    END IF;
+    -- A agregacao mensal -> quadrimestral do concorrente e o unico ponto do
+    -- pipeline onde N linhas viram 1. Contagem nao basta: confere valor e meses.
+    IF valor_conc_cln IS DISTINCT FROM valor_conc_dw THEN
+        RAISE EXCEPTION 'fat_concorrente: valor % no staging, % no destino',
+                        valor_conc_cln, valor_conc_dw;
+    END IF;
+    IF meses_conc <> meses_raw THEN
+        RAISE EXCEPTION 'agregação do concorrente: % meses na origem, % contabilizados',
+                        meses_raw, meses_conc;
     END IF;
     IF EXISTS (
         SELECT 1

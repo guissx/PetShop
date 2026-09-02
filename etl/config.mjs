@@ -113,9 +113,15 @@ export const LIMITES = {
 // -----------------------------------------------------------------------------
 // Calendário
 // -----------------------------------------------------------------------------
-// Gerado completo em vez de só as datas observadas: os fatos têm FK obrigatória
-// para dim_data, e 731 linhas é mais simples e robusto do que ~700 distintas.
-// O script VERIFICA que toda data das fontes cai dentro deste intervalo.
+// dim_data tem grao QUADRIMESTRAL (3 linhas por ano, 6 no total): a regra de
+// negocio pede analise por quadrimestre e/ou ano, e nenhum indicador exige dia.
+// Este intervalo NAO vira linha de dimensao — ele so delimita a validacao: o
+// script VERIFICA que toda data das fontes cai dentro dele antes de derivar o
+// quadrimestre. Datas fora do intervalo viram rejeito, nao linha nova.
+//
+// CONSEQUENCIA: a data da venda nao existe em public.fat_vendas. Ela sobrevive
+// em stg.cln_fat_vendas (lookup SCD2 + reconciliacao) e em stg.raw_venda.
+// Analise mensal ou diaria so e possivel consultando o schema stg.
 export const CALENDARIO = { inicio: '2024-01-01', fim: '2025-12-31' };
 
 // -----------------------------------------------------------------------------

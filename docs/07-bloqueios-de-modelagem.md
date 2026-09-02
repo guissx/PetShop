@@ -142,52 +142,116 @@ representa o mês"), que precisa de `COMMENT` para não virar armadilha.
 análise competitiva. Se a comparação com o concorrente é requisito do trabalho,
 não serve.
 
-> **Recomendação:** (b) se `dim_data` ganhar a coluna `mes` (bloqueio 3),
-> (a) se não ganhar.
+> **DECISÃO APLICADA:** nenhuma das três. A tabela foi mantida com as cinco
+> colunas, e `dim_data` passou a ter grão **quadrimestral** (bloqueio 3). Os 24
+> meses da origem são **somados em 6 quadrimestres** pelo conformador, com
+> produto sentinela e `quantidade = 0`. A comparação exigida pelo enunciado
+> ("por quadrimestre e/ou ano") é atendida; a granularidade mensal do
+> concorrente deixa de existir no DW e permanece só em `stg.raw_concorrente`.
+>
+> A agregação é o único ponto do pipeline onde N linhas viram 1, então tem
+> validação própria em três camadas: o conformador falha se a soma dos valores
+> ou a contagem de meses não fechar; `stg.vw_check_agregacao_concorrente`
+> confere `sum(meses_agregados) = 24`; e o `40_load_dw.sql` compara a soma de
+> `valor_venda` entre staging e destino antes do `COMMIT`.
 
 ---
 
-## 3. `dim_data` — sem mês
+## 2b. `fat_concorrente.quantidade` não existe no banco remoto
 
-### O problema
+> **Descoberto em 2026-09-02**, inspecionando o projeto Supabase de destino
+> pela API REST. Não é um conflito de modelagem: é **deriva entre o DDL
+> versionado e o banco real**.
 
-A dimensão tem só `ano` e `quadrimestre`:
-
-| Coluna | Tipo |
-|---|---|
-| `data` | `date` (PK) |
-| `ano` | `smallint` |
-| `quadrimestre` | `smallint`, `CHECK 1..3` |
-
-A posição 3 foi removida — era provavelmente `mes` ou `trimestre`.
-
-Consequências:
-
-1. **Análise mensal das vendas é impossível** sem derivar de `data` na query
-   (`EXTRACT(MONTH FROM data)`), o que funciona mas contraria o propósito da
-   dimensão de calendário.
-2. **A fonte do concorrente é mensal.** Não há nível de agregação comum entre
-   `fat_vendas` (diário) e o concorrente (mensal) dentro da dimensão. A
-   comparação — provável objetivo central da análise — não tem como ser feita
-   por join de dimensão.
-3. **Quadrimestre é uma granularidade incomum.** 3 períodos de 4 meses. Não é
-   trimestre. Se a intenção era trimestre, o `CHECK 1..3` está errado (deveria
-   ser `1..4`) e o nome também.
-
-### Correção
+O [`01_dw_ddl.sql`](../sql/01_dw_ddl.sql) declara:
 
 ```sql
-ALTER TABLE dim_data ADD COLUMN mes smallint;
-UPDATE dim_data SET mes = EXTRACT(MONTH FROM data);
-ALTER TABLE dim_data ALTER COLUMN mes SET NOT NULL;
-ALTER TABLE dim_data ADD CONSTRAINT dim_data_mes_check CHECK (mes BETWEEN 1 AND 12);
+quantidade integer NOT NULL,
+CONSTRAINT fat_concorrente_quantidade_check CHECK (quantidade >= 0)
 ```
 
-Barato, e faz `dim_data` cumprir o papel de dimensão de calendário. Como a
-tabela está vazia, é só incluir a coluna no DDL antes de gerar o calendário.
+O banco remoto tem apenas quatro colunas — `id_concorrente`, `data`,
+`sk_produto`, `valor_venda`. Pedir a coluna devolve:
 
-Vale confirmar de passagem se **quadrimestre** é mesmo o que se quer, ou se era
-trimestre.
+```
+42703  column fat_concorrente.quantidade does not exist
+```
+
+**Consequência:** o `INSERT INTO public.fat_concorrente` do `40_load_dw.sql`
+falharia contra esse destino — e falharia igual na versão anterior do ETL, que
+também insere `quantidade`. Isso reconcilia a contradição entre o README raiz
+(que reporta carga bem-sucedida) e o [README desta pasta](README.md), que
+registra o histórico remoto como pendente: os dados que estão lá vieram de uma
+carga que não é reproduzível pelo código atual.
+
+**Correção aplicada:** [`00_preflight.sql`](../sql/00_preflight.sql) cria a
+coluna se ela faltar — anulável, preenchida com `0`, depois `NOT NULL` e com o
+`CHECK`. Funciona com a tabela vazia ou populada.
+
+O `0` continua significando **"não medido na origem"**, nunca "vendeu zero
+unidades" — a fonte é faturamento agregado e não traz quantidade.
+
+---
+
+## 3. `dim_data` — grão quadrimestral
+
+> **RESOLVIDO.** Esta seção registra a decisão tomada e o que ela custa.
+
+### O modelo original
+
+A dimensão tinha PK `data date` e grão **diário** — 731 linhas para 2024–2025 —
+com apenas `ano` e `quadrimestre` como atributos, sem coluna de mês. A posição
+3 aparece removida no catálogo; era provavelmente `mes` ou `trimestre`.
+
+### A decisão
+
+`dim_data` passou a ter grão **quadrimestral**: uma linha por `(ano,
+quadrimestre)`, **6 no total**. A PK deixou de ser `data` e passou a ser
+`id_data integer`, surrogate **sequencial** (1..6) fornecido pelo ETL. Os dois
+fatos trocaram a coluna `data` por `id_data`.
+
+**Justificativa:** o enunciado do projeto pede análise "por quadrimestre e/ou
+por ano" em três dos indicadores exigidos, e nenhum dos nove pede dia ou mês.
+O grão da dimensão passa a espelhar exatamente a regra de negócio, e a chave
+substituta torna explícito o padrão de star schema.
+
+O `UNIQUE (ano, quadrimestre)` foi adicionado junto: declara o grão e impede
+período duplicado — garantia que o modelo diário não tinha.
+
+### O que isso custa
+
+Registrado aqui porque não é reversível sem recarga completa:
+
+1. **Não existe data em lugar nenhum do schema `public`.** Análise mensal ou
+   diária é impossível no DW. A data real da venda sobrevive apenas em
+   `stg.cln_fat_vendas` e `stg.raw_venda`; o mês do concorrente, apenas em
+   `stg.raw_concorrente`.
+2. **A comparação com o concorrente perde o mês.** A fonte é mensal e passa a
+   ser agregada em quadrimestres na conformação (ver bloqueio 2).
+3. **Sem time intelligence nativa no Power BI.** Não há coluna de data para
+   marcar `dim_data` como *Date Table*, então `SAMEPERIODLASTYEAR` e afins não
+   estão disponíveis. O indicador de diferença entre anos consecutivos precisa
+   ser escrito como DAX manual sobre `ano`.
+4. **A reconciliação por data sai do DW.** Conferir a carga contra os arquivos
+   de origem por data só é possível consultando o schema `stg`.
+5. **`id_data` não carrega significado.** Ordenar cronologicamente exige
+   `ORDER BY ano, quadrimestre`. Hoje a ordem numérica coincide com a
+   cronológica, mas por acidente da ordem de geração — não é garantia do modelo,
+   e passa a ser falsa se o calendário for regerado com um ano anterior.
+
+### O que continuou igual
+
+- `fat_vendas` mantém as **6.621 linhas** no grão de item. O que mudou foi a
+  resolução temporal de cada linha, não a quantidade delas.
+- O lookup SCD2 continua usando a **data real** do fato: `stg.cln_fat_vendas`
+  preserva a coluna `data` justamente para isso. Sem ela seria impossível achar
+  a versão vigente de produto e loja no momento da venda.
+
+### Quadrimestre não é trimestre
+
+Continua valendo o alerta: são 3 períodos de 4 meses (1 = Jan–Abr, 2 = Mai–Ago,
+3 = Set–Dez). O `CHECK 1..3` está correto para quadrimestre. Se a intenção
+tivesse sido trimestre, tanto o check quanto o nome estariam errados.
 
 ---
 
@@ -294,11 +358,20 @@ eles produz resultados sem significado real. Ver
 |---|---|---|---|---|
 | 1 | `fat_vendas` PK vs. grão | **Bloqueante** — cabem ~900 de 6.621 linhas | sim | Surrogate `sk_venda`, `id_venda` como dimensão degenerada |
 | 2 | `fat_concorrente` vs. fonte | **Bloqueante** — 3 colunas obrigatórias não existem na fonte | sim | Redesenhar como fato mensal sem produto |
-| 3 | `dim_data` sem mês | Alta — impede comparação com o concorrente | sim | Adicionar `mes`; confirmar quadrimestre vs. trimestre |
+| 3 | `dim_data` grão diário | **RESOLVIDO** — passou a quadrimestral | sim | Feito: PK `id_data` sequencial, 6 linhas, concorrente agregado |
 | 4 | `dim_produto` chave global | Média — resolvido pelo staging | não | Manter DDL, documentar via `COMMENT` |
 | 5 | Serviços sem destino | Média — 300 transações descartadas | opcional | Documentar a exclusão, ou criar `fat_servico` |
 | 6 | Sem `dim_cliente` | Escopo | opcional | Decidir conforme os objetivos da análise |
 
 Os bloqueios 1, 2 e 3 precisam ser resolvidos **antes** de escrever o ETL — eles
-mudam a forma das tabelas de destino. Como o banco está vazio, o custo de
-alterar agora é praticamente zero.
+mudam a forma das tabelas de destino.
+
+O bloqueio 3 foi resolvido alterando o DDL: `dim_data` passou ao grão
+quadrimestral com PK `id_data`. A migração de um DW já carregado está em
+[`sql/00_preflight.sql`](../sql/00_preflight.sql) e é a **única operação
+destrutiva do preflight** — ela trunca os dois fatos, o que só é seguro porque
+a carga é snapshot completo.
+
+Os bloqueios 1 e 2 continuam absorvidos pelo ETL: a forma das tabelas
+`fat_vendas` e `fat_concorrente` não mudou além da troca de `data` por
+`id_data`.

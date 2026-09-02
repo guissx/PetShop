@@ -31,12 +31,12 @@ Pipeline executado com sucesso. Estado atual do DW:
 
 | Tabela | Linhas |
 |---|---:|
-| `dim_data` | 731 |
+| `dim_data` | 6 (grão quadrimestral) |
 | `dim_produto` | 18 (17 produtos + 1 sentinela) |
 | `dim_loja` | 3 |
 | `dim_estado_civil` | 6 |
 | `fat_vendas` | **6.621** |
-| `fat_concorrente` | 24 |
+| `fat_concorrente` | 6 (24 meses agregados) |
 
 **Receita total: R$ 1.309.440,83**, batendo exatamente com o cálculo feito
 direto dos arquivos de origem, sem passar pelo ETL. Zero linhas rejeitadas.
@@ -143,11 +143,11 @@ Star schema com duas tabelas de fato que compartilham `dim_data` e `dim_produto`
 
 ```mermaid
 erDiagram
-    dim_data ||--o{ fat_vendas : data
+    dim_data ||--o{ fat_vendas : id_data
     dim_produto ||--o{ fat_vendas : sk_produto
     dim_loja ||--o{ fat_vendas : sk_loja
     dim_estado_civil ||--o{ fat_vendas : id_estado_civil
-    dim_data ||--o{ fat_concorrente : data
+    dim_data ||--o{ fat_concorrente : id_data
     dim_produto ||--o{ fat_concorrente : sk_produto
 ```
 
@@ -156,9 +156,9 @@ erDiagram
 | `dim_produto` | **SCD tipo 2** | Uma versão por produto por vigência |
 | `dim_loja` | **SCD tipo 2** | Uma versão por loja por vigência |
 | `dim_estado_civil` | Estática | Um rótulo |
-| `dim_data` | Calendário | Um dia |
+| `dim_data` | Calendário | Um **quadrimestre** (`ano`, `quadrimestre`) |
 | `fat_vendas` | Fato | **Um item de venda** |
-| `fat_concorrente` | Fato | Um mês agregado |
+| `fat_concorrente` | Fato | Um **quadrimestre** agregado |
 
 O SCD2 é garantido **pelo banco**, não por convenção de ETL:
 
@@ -177,8 +177,14 @@ calculado, e não um `INSERT` direto.
 
 > **Atenção ao `quadrimestre`:** são períodos de **4 meses, 3 por ano**
 > (1 = jan–abr, 2 = mai–ago, 3 = set–dez). Não é trimestre.
-> E `dim_data` **não tem coluna de mês** — análise mensal exige
-> `extract(month from data)` na consulta.
+>
+> **`dim_data` tem grão quadrimestral — 6 linhas, e não existe data em lugar
+> nenhum do schema `public`.** A chave é `id_data`, surrogate sequencial 1..6.
+> Análise mensal ou diária é impossível no DW; a data real da venda fica em
+> `stg.cln_fat_vendas`. Ver [docs/07](docs/07-bloqueios-de-modelagem.md#3-dim_data--grão-quadrimestral).
+>
+> Como `id_data` não carrega significado, ordene por `ano, quadrimestre` —
+> nunca por `id_data`.
 
 ---
 
@@ -243,11 +249,24 @@ mensal agregado. A solução usa membros sentinela:
 - `sk_produto` → membro `Não aplicável` (`id_produto = 999`)
 - `quantidade` → `0`, permitido porque o `CHECK` aqui é `>= 0`, ao contrário do
   `> 0` de `fat_vendas`
-- `data` → primeiro dia do mês
+- `id_data` → o quadrimestre em que o mês cai
+
+Como `dim_data` é quadrimestral e a fonte é mensal, os **24 meses são somados
+em 6 linhas** pelo conformador ([etl/conform.mjs](etl/conform.mjs)). É o único
+ponto do pipeline em que N linhas viram 1, então tem validação em três camadas:
+
+| Camada | Garantia |
+|---|---|
+| `conform.mjs` | falha se a soma dos valores ou a contagem de meses não fechar |
+| `stg.vw_check_agregacao_concorrente` | `sum(meses_agregados)` tem que dar 24 |
+| `40_load_dw.sql` | compara `sum(valor_venda)` entre staging e destino antes do `COMMIT` |
 
 > **`SUM(quantidade)` em `fat_concorrente` é sempre 0 e significa "não medido na
 > origem", nunca "vendeu zero unidades".** Só a comparação de **valor** entre
 > empresa e concorrente é válida com os dados fornecidos.
+
+> **O mês do concorrente não existe no DW.** Depois da agregação ele sobrevive
+> apenas em `stg.raw_concorrente`.
 
 ### 4. Três domínios para `estado_civil`
 
@@ -451,28 +470,42 @@ Os 17 produtos, os 47 mapeamentos, a categoria herdada e a grafia escolhida
 SELECT l.loja, d.ano, count(*) AS itens, round(sum(f.valor_venda), 2) AS receita
 FROM fat_vendas f
 JOIN dim_loja l ON l.sk_loja = f.sk_loja
-JOIN dim_data d ON d.data    = f.data
+JOIN dim_data d ON d.id_data = f.id_data
 GROUP BY 1, 2 ORDER BY 1, 2;
 
 -- Quadrimestres de 2024 (1 = jan-abr, 2 = mai-ago, 3 = set-dez)
 SELECT d.quadrimestre, count(*) AS itens, round(sum(f.valor_venda), 2) AS receita
 FROM fat_vendas f
-JOIN dim_data d ON d.data = f.data
+JOIN dim_data d ON d.id_data = f.id_data
 WHERE d.ano = 2024
 GROUP BY 1 ORDER BY 1;
 
--- Análise mensal: dim_data não tem mês, extraia da data
-SELECT extract(month from f.data)::int AS mes, round(sum(f.valor_venda), 2)
-FROM fat_vendas f WHERE extract(year from f.data) = 2024
+-- Análise mensal NÃO é possível no DW: dim_data é quadrimestral e não há data
+-- em public. O detalhe diário sobrevive no staging:
+SELECT extract(month from c.data)::int AS mes, round(sum(c.valor_venda), 2)
+FROM stg.cln_fat_vendas c WHERE extract(year from c.data) = 2024
 GROUP BY 1 ORDER BY 1;
 
 -- Empresa vs concorrente (só VALOR é comparável, nunca quantidade)
 SELECT d.ano,
        round(sum(f.valor_venda), 2) AS nossa_receita,
-       (SELECT round(sum(c.valor_venda), 2) FROM fat_concorrente c
-         WHERE extract(year from c.data) = d.ano) AS concorrente
-FROM fat_vendas f JOIN dim_data d ON d.data = f.data
+       (SELECT round(sum(c.valor_venda), 2)
+          FROM fat_concorrente c
+          JOIN dim_data dc ON dc.id_data = c.id_data
+         WHERE dc.ano = d.ano) AS concorrente
+FROM fat_vendas f JOIN dim_data d ON d.id_data = f.id_data
 GROUP BY d.ano ORDER BY d.ano;
+
+-- Diferença entre dois anos consecutivos, por produto (indicador 8)
+SELECT p.produto,
+       sum(f.quantidade) FILTER (WHERE d.ano = 2024) AS qtd_2024,
+       sum(f.quantidade) FILTER (WHERE d.ano = 2025) AS qtd_2025,
+       sum(f.quantidade) FILTER (WHERE d.ano = 2025)
+     - sum(f.quantidade) FILTER (WHERE d.ano = 2024) AS diferenca
+FROM fat_vendas f
+JOIN dim_data d    ON d.id_data    = f.id_data
+JOIN dim_produto p ON p.sk_produto = f.sk_produto
+GROUP BY 1 ORDER BY 4 DESC;
 
 -- Decodificar a chave de fato
 SELECT id_venda,
@@ -515,7 +548,15 @@ ORDER BY iniciado_em DESC;
 - **Sem `dim_cliente`.** `sexo`, `data_nascimento` e `email` são descartados; só
   `estado_civil` sobrevive, degenerado em `fat_vendas`. Análise por gênero ou
   faixa etária não é possível.
-- **Sem mês em `dim_data`.** Extraia da data na consulta.
+- **`dim_data` é quadrimestral e não há data no `public`.** Análise mensal ou
+  diária é impossível no DW — consulte `stg.cln_fat_vendas` para o detalhe
+  diário e `stg.raw_concorrente` para o mensal do concorrente. Consequência
+  aceita deliberadamente: o enunciado pede análise por quadrimestre e/ou ano.
+- **Concorrente agregado.** Os 24 meses da fonte viram 6 linhas quadrimestrais
+  na carga. A soma é validada em três camadas, mas o mês não volta.
+- **Sem time intelligence no Power BI.** Sem coluna de data, `dim_data` não pode
+  ser marcada como *Date Table*: comparação entre anos consecutivos exige DAX
+  manual sobre `ano`.
 - **Quantidade do concorrente não existe.** Só valor é comparável.
 - **Carga por snapshot completo.** As tabelas de fato são truncadas e
   recarregadas na mesma transação — deliberado para fontes que são arquivos

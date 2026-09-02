@@ -272,7 +272,7 @@ export function conformarLojas(fontes, avisos) {
 // =============================================================================
 // 4. Fatos de venda
 // =============================================================================
-export function conformarVendas(fontes, deparaProduto, deparaEstadoCivil, avisos) {
+export function conformarVendas(fontes, deparaProduto, deparaEstadoCivil, ixCalendario, avisos) {
   const idProdutoPor = new Map(deparaProduto.map(d => [`${d.fonte}|${d.id_origem}`, d.id_conformado]));
   const idEcPor = new Map(deparaEstadoCivil.map(d => [d.valor_origem, d.id_conformado]));
 
@@ -308,6 +308,12 @@ export function conformarVendas(fontes, deparaProduto, deparaEstadoCivil, avisos
       if (!data) { rejeitar(`data ilegível: "${venda.data_venda}"`); continue; }
       if (data < limites.inicio || data > limites.fim) {
         rejeitar(`data ${data} fora do calendário ${limites.inicio}..${limites.fim}`); continue;
+      }
+      // O DW e quadrimestral: a data vira id_data aqui. `data` continua no
+      // staging para o lookup SCD2 e para reconciliar com a origem.
+      const idData = idDataDe(ixCalendario, data);
+      if (idData === undefined) {
+        rejeitar(`data ${data} sem quadrimestre correspondente em dim_data`); continue;
       }
 
       const cliente = clientePor.get(String(venda.id_cliente));
@@ -349,7 +355,8 @@ export function conformarVendas(fontes, deparaProduto, deparaEstadoCivil, avisos
         id_venda: idVenda,
         id_produto: idConformado,          // resolvido para sk_produto no SQL
         id_loja: loja.id_loja,             // resolvido para sk_loja no SQL
-        data,
+        id_data: idData,                   // FK do DW (grao quadrimestral)
+        data,                              // staging: lookup SCD2 + auditoria
         quantidade: qtd,
         valor_venda: money(valor),
         id_estado_civil: idEc,
@@ -387,52 +394,117 @@ export function conformarVendas(fontes, deparaProduto, deparaEstadoCivil, avisos
 // =============================================================================
 // 5. Fato do concorrente
 // =============================================================================
-export function conformarConcorrente(linhas, avisos) {
-  const fatos = linhas.map(l => {
+// A fonte e MENSAL (24 linhas) e o DW e QUADRIMESTRAL: a agregacao acontece
+// aqui, no conformador, e nao no SQL de carga. Consequencia deliberada: a
+// camada cln ja nasce com 6 linhas e o detalhe mensal existe apenas em
+// stg.raw_concorrente. Ver docs/07-bloqueios-de-modelagem.md.
+export function conformarConcorrente(linhas, ixCalendario, avisos) {
+  const porQuadrimestre = new Map();
+
+  for (const l of linhas) {
     const ano = Number(l.ano);
-    const data = `${ano}-${doisDigitos(l.mes)}-01`;
+    const mes = Number(l.mes);
+    const data = `${ano}-${doisDigitos(mes)}-01`;
     if (data < CALENDARIO.inicio || data > CALENDARIO.fim) {
-      throw new Error(`concorrente ${ano}-${doisDigitos(l.mes)} fora do calendário ` +
+      throw new Error(`concorrente ${ano}-${doisDigitos(mes)} fora do calendário ` +
                       `${CALENDARIO.inicio}..${CALENDARIO.fim} — ajuste CALENDARIO em config.mjs`);
     }
     const valor = Number(l.valor_venda);
     if (!Number.isFinite(valor) || valor < 0) {
       throw new Error(`valor inválido no concorrente ${ano}-${l.mes_abrev}: "${l.valor_venda}"`);
     }
-    return {
-      id_concorrente: ano * 100 + l.mes,
-      data,
-      id_produto: PRODUTO_SENTINELA.id_produto,
-      quantidade: 0,     // não medido na origem; o CHECK aqui é >= 0
-      valor_venda: money(valor),
-      ano, mes: l.mes,
-    };
-  });
 
-  const chaves = new Set(fatos.map(f => f.id_concorrente));
-  if (chaves.size !== fatos.length) throw new Error('concorrente tem mês duplicado');
+    const quadrimestre = quadrimestreDe(mes);
+    const idData = ixCalendario.get(`${ano}-${quadrimestre}`);
+    if (idData === undefined) {
+      throw new Error(`concorrente ${ano}-Q${quadrimestre} sem linha em dim_data`);
+    }
 
-  avisos.push(`concorrente: ${fatos.length} meses carregados com produto sentinela ` +
-              `e quantidade 0 — SUM(quantidade) nessa tabela não tem significado`);
+    const acumulado = porQuadrimestre.get(idData);
+    if (acumulado) {
+      acumulado.valor_bruto += valor;
+      acumulado.meses_agregados++;
+    } else {
+      porQuadrimestre.set(idData, {
+        // 1:1 com id_data: o grao do fato E o quadrimestre, entao a PK exigida
+        // pelo modelo nao carrega informacao alem da propria FK.
+        id_concorrente: idData,
+        id_data: idData,
+        id_produto: PRODUTO_SENTINELA.id_produto,
+        quantidade: 0,     // não medido na origem; o CHECK aqui é >= 0
+        valor_bruto: valor,
+        ano, quadrimestre,
+        meses_agregados: 1,
+        // Só para o lookup SCD2 no staging: primeiro dia do quadrimestre.
+        data_referencia: `${ano}-${doisDigitos((quadrimestre - 1) * 4 + 1)}-01`,
+      });
+    }
+  }
+
+  const fatos = [...porQuadrimestre.values()]
+    .sort((a, b) => a.id_data - b.id_data)
+    .map(({ valor_bruto, ...f }) => ({ ...f, valor_venda: money(valor_bruto) }));
+
+  // A agregacao e o risco novo desta etapa: dinheiro e linha nao podem sumir.
+  const totalOrigem = Number(money(linhas.reduce((t, l) => t + Number(l.valor_venda), 0)));
+  const totalFatos = Number(money(fatos.reduce((t, f) => t + Number(f.valor_venda), 0)));
+  if (Math.abs(totalOrigem - totalFatos) > 0.01) {
+    throw new Error(`agregação do concorrente perdeu valor: origem ${totalOrigem}, ` +
+                    `agregado ${totalFatos}`);
+  }
+  const mesesAgregados = fatos.reduce((t, f) => t + f.meses_agregados, 0);
+  if (mesesAgregados !== linhas.length) {
+    throw new Error(`agregação do concorrente perdeu linha: ${linhas.length} meses na origem, ` +
+                    `${mesesAgregados} contabilizados`);
+  }
+
+  avisos.push(`concorrente: ${linhas.length} meses agregados em ${fatos.length} quadrimestres ` +
+              `com produto sentinela e quantidade 0 — SUM(quantidade) nessa tabela não tem ` +
+              `significado, e o detalhe mensal só existe em stg.raw_concorrente`);
   return fatos;
 }
 
 // =============================================================================
 // 6. Calendário
 // =============================================================================
+/** Quadrimestre de um mes 1..12: 1 = Jan-Abr, 2 = Mai-Ago, 3 = Set-Dez. */
+export function quadrimestreDe(mes) {
+  return Math.ceil(mes / 4);
+}
+
+/**
+ * dim_data tem grao QUADRIMESTRAL: 3 linhas por ano, nao 366.
+ * id_data e um surrogate sequencial (1..N) atribuido na ordem cronologica
+ * (ano, quadrimestre) — nao carrega significado, e a ordenacao cronologica
+ * exige ORDER BY ano, quadrimestre.
+ *
+ * O calendario e gerado completo (todos os quadrimestres dos anos cobertos)
+ * em vez de so os observados: os fatos tem FK obrigatoria para dim_data, e
+ * 6 linhas fixas sao mais simples e robustas do que as distintas observadas.
+ */
 export function gerarCalendario() {
   const linhas = [];
-  const fim = new Date(`${CALENDARIO.fim}T00:00:00Z`);
-  for (let d = new Date(`${CALENDARIO.inicio}T00:00:00Z`); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
-    const ano = d.getUTCFullYear();
-    const mes = d.getUTCMonth() + 1;
-    linhas.push({
-      data: `${ano}-${doisDigitos(mes)}-${doisDigitos(d.getUTCDate())}`,
-      ano,
-      quadrimestre: Math.ceil(mes / 4),   // 1 = Jan-Abr, 2 = Mai-Ago, 3 = Set-Dez
-    });
+  const anoInicio = Number(CALENDARIO.inicio.slice(0, 4));
+  const anoFim = Number(CALENDARIO.fim.slice(0, 4));
+  let id = 0;
+  for (let ano = anoInicio; ano <= anoFim; ano++) {
+    for (let quadrimestre = 1; quadrimestre <= 3; quadrimestre++) {
+      linhas.push({ id_data: ++id, ano, quadrimestre });
+    }
   }
   return linhas;
+}
+
+/** `${ano}-${quadrimestre}` -> id_data. Resolve a FK dos dois fatos. */
+export function indexarCalendario(calendario) {
+  return new Map(calendario.map(l => [`${l.ano}-${l.quadrimestre}`, l.id_data]));
+}
+
+/** id_data a partir de uma data ISO 'YYYY-MM-DD'. undefined se fora do calendario. */
+function idDataDe(ixCalendario, dataIso) {
+  const ano = Number(dataIso.slice(0, 4));
+  const mes = Number(dataIso.slice(5, 7));
+  return ixCalendario.get(`${ano}-${quadrimestreDe(mes)}`);
 }
 
 // =============================================================================
@@ -447,8 +519,9 @@ export function conformarTudo(fontes) {
   const estadoCivil = conformarEstadoCivil(fontes, avisos);
   const lojas = conformarLojas(fontes, avisos);
   const calendario = gerarCalendario();
-  const vendas = conformarVendas(fontes, deparaProduto, estadoCivil.depara, avisos);
-  const concorrente = conformarConcorrente(fontes.concorrente, avisos);
+  const ixCalendario = indexarCalendario(calendario);
+  const vendas = conformarVendas(fontes, deparaProduto, estadoCivil.depara, ixCalendario, avisos);
+  const concorrente = conformarConcorrente(fontes.concorrente, ixCalendario, avisos);
 
   // Reconciliação: nenhuma linha pode sumir sem motivo registrado.
   const itensOrigem = FONTES.reduce((n, f) => n + fontes[f].itens.length, 0);

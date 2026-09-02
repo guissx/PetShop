@@ -35,7 +35,8 @@ Nenhuma materialized view, nenhuma tabela particionada, nenhum trigger de tabela
 
 | Tabela | Índice | Tipo | Definição |
 |---|---|---|---|
-| `dim_data` | `pk_dim_data` | btree unique | `(data)` |
+| `dim_data` | `pk_dim_data` | btree unique | `(id_data)` |
+| | `uq_dim_data_ano_quad` | btree unique | `(ano, quadrimestre)` — declara o grão |
 | `dim_estado_civil` | `pk_dim_estado_civil` | btree unique | `(id_estado_civil)` |
 | | `uq_dim_estado_civil` | btree unique | `(estado_civil)` |
 | `dim_loja` | `pk_dim_loja` | btree unique | `(sk_loja)` |
@@ -47,12 +48,12 @@ Nenhuma materialized view, nenhuma tabela particionada, nenhum trigger de tabela
 | | `ix_produto_bk` | btree | `(id_produto, data_inicio, data_fim)` |
 | | `ex_produto_per` | **gist** | `(id_produto, tsrange(data_inicio, data_fim))` |
 | `fat_vendas` | `pk_fat_vendas` | btree unique | `(id_venda)` |
-| | `ix_vendas_data` | btree | `(data)` |
+| | `ix_vendas_data` | btree | `(id_data)` |
 | | `ix_vendas_produto` | btree | `(sk_produto)` |
 | | `ix_vendas_loja` | btree | `(sk_loja)` |
 | | `ix_vendas_estcivil` | btree | `(id_estado_civil)` |
 | `fat_concorrente` | `pk_fat_concorrente` | btree unique | `(id_concorrente)` |
-| | `ix_conc_data` | btree | `(data, sk_produto)` |
+| | `ix_conc_data` | btree | `(id_data, sk_produto)` |
 
 Os dois índices gist não são escolha de tuning — eles **implementam** as
 exclusion constraints do SCD2. Não podem ser removidos sem derrubar a constraint.
@@ -73,10 +74,10 @@ Uma por tabela: `pk_dim_data`, `pk_dim_estado_civil`, `pk_dim_loja`,
 |---|---|---|
 | `fk_vendas_produto` | `fat_vendas(sk_produto)` | `dim_produto(sk_produto)` |
 | `fk_vendas_loja` | `fat_vendas(sk_loja)` | `dim_loja(sk_loja)` |
-| `fk_vendas_data` | `fat_vendas(data)` | `dim_data(data)` |
+| `fk_vendas_data` | `fat_vendas(id_data)` | `dim_data(id_data)` |
 | `fk_vendas_estcivil` | `fat_vendas(id_estado_civil)` | `dim_estado_civil(id_estado_civil)` |
 | `fk_conc_produto` | `fat_concorrente(sk_produto)` | `dim_produto(sk_produto)` |
-| `fk_conc_data` | `fat_concorrente(data)` | `dim_data(data)` |
+| `fk_conc_data` | `fat_concorrente(id_data)` | `dim_data(id_data)` |
 
 Todas sem `ON DELETE`/`ON UPDATE` explícito → `NO ACTION`.
 Todas sobre colunas `NOT NULL` → não há membro "desconhecido" possível.

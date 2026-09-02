@@ -111,17 +111,31 @@ CREATE TABLE public.dim_estado_civil (
 
 
 -- -----------------------------------------------------------------------------
--- dim_data — calendário, grão diário
+-- dim_data — calendário, grão QUADRIMESTRAL
 -- -----------------------------------------------------------------------------
--- Só ano e quadrimestre. NÃO há coluna de mês: análise mensal exige
--- EXTRACT(MONTH FROM data) na query.
 -- quadrimestre = período de 4 meses (1 = Jan-Abr, 2 = Mai-Ago, 3 = Set-Dez).
+-- NÃO é trimestre.
+--
+-- O grão é (ano, quadrimestre) — 3 linhas por ano, 6 no total para 2024-2025.
+-- Decisão de projeto: a regra de negócio pede análise por quadrimestre e/ou
+-- ano, e nenhum dos indicadores exigidos precisa de dia ou mês.
+--
+-- CONSEQUÊNCIA: não existe data em lugar nenhum do schema public. Análise
+-- mensal ou diária é IMPOSSÍVEL no DW — a data da venda sobrevive apenas em
+-- stg.cln_fat_vendas e stg.raw_venda, e o mês do concorrente apenas em
+-- stg.raw_concorrente. Ver ../docs/07-bloqueios-de-modelagem.md.
+--
+-- id_data é surrogate SEQUENCIAL (1..6), atribuído pelo ETL na ordem
+-- cronológica (ano, quadrimestre). Não carrega significado: ordenar
+-- cronologicamente exige ORDER BY ano, quadrimestre — nunca ORDER BY id_data.
 CREATE TABLE public.dim_data (
-    data          date     NOT NULL,
+    id_data       integer  NOT NULL,
     ano           smallint NOT NULL,
     quadrimestre  smallint NOT NULL,
 
-    CONSTRAINT pk_dim_data PRIMARY KEY (data),
+    CONSTRAINT pk_dim_data PRIMARY KEY (id_data),
+    -- declara o grão e impede período duplicado
+    CONSTRAINT uq_dim_data_ano_quad UNIQUE (ano, quadrimestre),
     CONSTRAINT dim_data_quadrimestre_check CHECK (quadrimestre >= 1 AND quadrimestre <= 3)
 );
 
@@ -146,7 +160,7 @@ CREATE TABLE public.fat_vendas (
     id_venda         bigint        NOT NULL,
     sk_produto       bigint        NOT NULL,
     sk_loja          bigint        NOT NULL,
-    data             date          NOT NULL,
+    id_data          integer       NOT NULL,
     quantidade       integer       NOT NULL,
     valor_venda      numeric(14,2) NOT NULL,
     id_estado_civil  integer       NOT NULL,
@@ -154,13 +168,13 @@ CREATE TABLE public.fat_vendas (
     CONSTRAINT pk_fat_vendas PRIMARY KEY (id_venda),
     CONSTRAINT fk_vendas_produto  FOREIGN KEY (sk_produto)      REFERENCES public.dim_produto(sk_produto),
     CONSTRAINT fk_vendas_loja     FOREIGN KEY (sk_loja)         REFERENCES public.dim_loja(sk_loja),
-    CONSTRAINT fk_vendas_data     FOREIGN KEY (data)            REFERENCES public.dim_data(data),
+    CONSTRAINT fk_vendas_data     FOREIGN KEY (id_data)         REFERENCES public.dim_data(id_data),
     CONSTRAINT fk_vendas_estcivil FOREIGN KEY (id_estado_civil) REFERENCES public.dim_estado_civil(id_estado_civil),
     CONSTRAINT fat_vendas_quantidade_check  CHECK (quantidade > 0),
     CONSTRAINT fat_vendas_valor_venda_check CHECK (valor_venda >= 0)
 );
 
-CREATE INDEX ix_vendas_data     ON public.fat_vendas (data);
+CREATE INDEX ix_vendas_data     ON public.fat_vendas (id_data);
 CREATE INDEX ix_vendas_produto  ON public.fat_vendas (sk_produto);
 CREATE INDEX ix_vendas_loja     ON public.fat_vendas (sk_loja);
 CREATE INDEX ix_vendas_estcivil ON public.fat_vendas (id_estado_civil);
@@ -173,7 +187,8 @@ CREATE INDEX ix_vendas_estcivil ON public.fat_vendas (id_estado_civil);
 -- só Ano, Mês e Vendas (R$). Não tem produto, não tem quantidade, não tem dia.
 --
 -- Como o destino não muda, o staging carrega usando membros sentinela:
---   data       = primeiro dia do mês
+--   id_data    = quadrimestre (os 4 meses são SOMADOS pelo ETL: 24 linhas
+--                mensais na origem viram 6 linhas quadrimestrais aqui)
 --   sk_produto = membro 'Não aplicável' de dim_produto (id_produto = 999)
 --   quantidade = 0   (permitido: o CHECK aqui é >= 0, ao contrário de fat_vendas)
 --
@@ -184,21 +199,21 @@ CREATE INDEX ix_vendas_estcivil ON public.fat_vendas (id_estado_civil);
 -- Não existe UNIQUE (data, sk_produto): a tabela aceita duplicata do grão.
 CREATE TABLE public.fat_concorrente (
     id_concorrente  bigint        NOT NULL,
-    data            date          NOT NULL,
+    id_data         integer       NOT NULL,
     sk_produto      bigint        NOT NULL,
     quantidade      integer       NOT NULL,
     valor_venda     numeric(14,2) NOT NULL,
 
     CONSTRAINT pk_fat_concorrente PRIMARY KEY (id_concorrente),
-    CONSTRAINT fk_conc_data    FOREIGN KEY (data)       REFERENCES public.dim_data(data),
+    CONSTRAINT fk_conc_data    FOREIGN KEY (id_data)    REFERENCES public.dim_data(id_data),
     CONSTRAINT fk_conc_produto FOREIGN KEY (sk_produto) REFERENCES public.dim_produto(sk_produto),
     CONSTRAINT fat_concorrente_quantidade_check  CHECK (quantidade >= 0),
     CONSTRAINT fat_concorrente_valor_venda_check CHECK (valor_venda >= 0)
 );
 
-CREATE INDEX ix_conc_data ON public.fat_concorrente (data, sk_produto);
+CREATE INDEX ix_conc_data ON public.fat_concorrente (id_data, sk_produto);
 CREATE INDEX ix_conc_produto ON public.fat_concorrente (sk_produto);
-CREATE UNIQUE INDEX ux_conc_grao ON public.fat_concorrente (data, sk_produto);
+CREATE UNIQUE INDEX ux_conc_grao ON public.fat_concorrente (id_data, sk_produto);
 
 
 -- =============================================================================

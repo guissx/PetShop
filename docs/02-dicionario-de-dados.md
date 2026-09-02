@@ -109,30 +109,43 @@ Provavelmente **6**, com um membro `Não informado`: 10 clientes da Feira têm
 
 ## dim_data
 
-Dimensão de calendário. Grão **diário**, mas com apenas dois atributos. 0 linhas.
+Dimensão de calendário. Grão **quadrimestral** — `(ano, quadrimestre)`. **6 linhas**.
 
 | # | Coluna | Tipo | Nulo | Default | Notas |
 |---|---|---|---|---|---|
-| 1 | `data` | `date` | NN | — | **PK**. É a própria chave — não há surrogate |
+| 1 | `id_data` | `integer` | NN | — | **PK**. Surrogate **sequencial** (1..6) fornecido pelo ETL |
 | 2 | `ano` | `smallint` | NN | — | Ano |
-| 4 | `quadrimestre` | `smallint` | NN | — | **CHECK entre 1 e 3**. Quadrimestre = 4 meses |
+| 3 | `quadrimestre` | `smallint` | NN | — | **CHECK entre 1 e 3**. Quadrimestre = 4 meses |
 
-> A posição 3 foi removida — era provavelmente `mes` ou `trimestre`.
-
-**Constraints**: `pk_dim_data PRIMARY KEY (data)`,
+**Constraints**: `pk_dim_data PRIMARY KEY (id_data)`,
+`uq_dim_data_ano_quad UNIQUE (ano, quadrimestre)`,
 `dim_data_quadrimestre_check CHECK (quadrimestre >= 1 AND quadrimestre <= 3)`
 
-**Índices**: `pk_dim_data`
+**Índices**: `pk_dim_data`, `uq_dim_data_ano_quad`
 
-**Conteúdo esperado**: as fontes cobrem **2024-01-01 a 2025-12-28**. O mais
-simples é gerar o calendário completo `2024-01-01 .. 2025-12-31` (731 linhas),
-já que os fatos têm FK obrigatória para cá.
+**Conteúdo**: 3 quadrimestres por ano nos anos cobertos pelas fontes
+(2024 e 2025), gerados completos — os fatos têm FK obrigatória para cá.
 
-Mapeamento de quadrimestre: `1` = Jan–Abr, `2` = Mai–Ago, `3` = Set–Dez
-(`quadrimestre = CEIL(EXTRACT(MONTH FROM data) / 4.0)`).
+| `id_data` | `ano` | `quadrimestre` | Meses |
+|---:|---:|---:|---|
+| 1 | 2024 | 1 | Jan–Abr |
+| 2 | 2024 | 2 | Mai–Ago |
+| 3 | 2024 | 3 | Set–Dez |
+| 4 | 2025 | 1 | Jan–Abr |
+| 5 | 2025 | 2 | Mai–Ago |
+| 6 | 2025 | 3 | Set–Dez |
 
-> ⚠️ **Não há coluna de mês.** Análise mensal é impossível, e a fonte do
-> concorrente é mensal. Ver [07](07-bloqueios-de-modelagem.md#3-dim_data--sem-mês).
+Derivação no ETL: `quadrimestre = CEIL(mes / 4)`, e `id_data` é atribuído
+sequencialmente na ordem `(ano, quadrimestre)`.
+
+> ⚠️ **`id_data` não carrega significado.** Ordenar cronologicamente exige
+> `ORDER BY ano, quadrimestre` — nunca `ORDER BY id_data`. Hoje as duas ordens
+> coincidem, mas isso é acidente da ordem de geração, não garantia do modelo.
+
+> ⚠️ **Não existe data em lugar nenhum do schema `public`.** Análise mensal ou
+> diária é impossível no DW. A data da venda sobrevive em `stg.cln_fat_vendas`
+> e `stg.raw_venda`; o mês do concorrente, em `stg.raw_concorrente`.
+> Ver [07](07-bloqueios-de-modelagem.md#3-dim_data--grão-quadrimestral).
 
 ---
 
@@ -145,7 +158,7 @@ Fato de vendas próprias. 0 linhas.
 | 1 | `id_venda` | `bigint` | NN | — | **PK**. Sem identity — o ETL fornece |
 | 2 | `sk_produto` | `bigint` | NN | — | **FK** → `dim_produto.sk_produto` |
 | 4 | `sk_loja` | `bigint` | NN | — | **FK** → `dim_loja.sk_loja` |
-| 5 | `data` | `date` | NN | — | **FK** → `dim_data.data` |
+| 5 | `id_data` | `integer` | NN | — | **FK** → `dim_data.id_data` (grão quadrimestral) |
 | 6 | `quantidade` | `integer` | NN | — | **CHECK > 0** (estritamente positivo) |
 | 7 | `valor_venda` | `numeric(14,2)` | NN | — | **CHECK >= 0** |
 | 8 | `id_estado_civil` | `integer` | NN | — | **FK** → `dim_estado_civil`. Atributo demográfico degenerado |
@@ -157,7 +170,7 @@ Fato de vendas próprias. 0 linhas.
 - `pk_fat_vendas` — `PRIMARY KEY (id_venda)`
 - `fk_vendas_produto` → `dim_produto(sk_produto)`
 - `fk_vendas_loja` → `dim_loja(sk_loja)`
-- `fk_vendas_data` → `dim_data(data)`
+- `fk_vendas_data` → `dim_data(id_data)`
 - `fk_vendas_estcivil` → `dim_estado_civil(id_estado_civil)`
 - `fat_vendas_quantidade_check` — `CHECK (quantidade > 0)`
 - `fat_vendas_valor_venda_check` — `CHECK (valor_venda >= 0)`
@@ -182,19 +195,20 @@ Fato de vendas do concorrente. 0 linhas.
 | # | Coluna | Tipo | Nulo | Default | Notas |
 |---|---|---|---|---|---|
 | 1 | `id_concorrente` | `bigint` | NN | — | **PK**. Sem identity |
-| 2 | `data` | `date` | NN | — | **FK** → `dim_data.data` |
+| 2 | `id_data` | `integer` | NN | — | **FK** → `dim_data.id_data` (grão quadrimestral) |
 | 3 | `sk_produto` | `bigint` | NN | — | **FK** → `dim_produto.sk_produto` |
 | 4 | `quantidade` | `integer` | NN | — | **CHECK >= 0** (aceita zero, ao contrário de `fat_vendas`) |
 | 5 | `valor_venda` | `numeric(14,2)` | NN | — | **CHECK >= 0** |
 
 > A posição 6 foi removida.
 
-**Constraints**: `pk_fat_concorrente`, `fk_conc_data` → `dim_data(data)`,
+**Constraints**: `pk_fat_concorrente`, `fk_conc_data` → `dim_data(id_data)`,
 `fk_conc_produto` → `dim_produto(sk_produto)`,
 `fat_concorrente_quantidade_check CHECK (quantidade >= 0)`,
 `fat_concorrente_valor_venda_check CHECK (valor_venda >= 0)`
 
-**Índices**: `pk_fat_concorrente`, `ix_conc_data (data, sk_produto)`
+**Índices**: `pk_fat_concorrente`, `ix_conc_data (id_data, sk_produto)`,
+`ux_conc_grao UNIQUE (id_data, sk_produto)`
 
 ### Duas observações
 

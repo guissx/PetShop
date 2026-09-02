@@ -9,17 +9,17 @@ nem recorte demográfico.
 
 ```mermaid
 erDiagram
-    dim_data ||--o{ fat_vendas : "data"
+    dim_data ||--o{ fat_vendas : "id_data"
     dim_produto ||--o{ fat_vendas : "sk_produto"
     dim_loja ||--o{ fat_vendas : "sk_loja"
     dim_estado_civil ||--o{ fat_vendas : "id_estado_civil"
-    dim_data ||--o{ fat_concorrente : "data"
+    dim_data ||--o{ fat_concorrente : "id_data"
     dim_produto ||--o{ fat_concorrente : "sk_produto"
 
     dim_data {
-        date data PK
+        int id_data PK "sequencial 1..6"
         smallint ano
-        smallint quadrimestre "CHECK 1..3"
+        smallint quadrimestre "CHECK 1..3, UK com ano"
     }
     dim_produto {
         bigint sk_produto PK "identity"
@@ -50,14 +50,14 @@ erDiagram
         bigint id_venda PK
         bigint sk_produto FK
         bigint sk_loja FK
-        date data FK
+        int id_data FK
         int id_estado_civil FK
         int quantidade "CHECK > 0"
         numeric valor_venda "CHECK >= 0"
     }
     fat_concorrente {
         bigint id_concorrente PK
-        date data FK
+        int id_data FK
         bigint sk_produto FK
         int quantidade "CHECK >= 0"
         numeric valor_venda "CHECK >= 0"
@@ -68,8 +68,13 @@ erDiagram
 
 | Fato | Grão declarado pelo modelo | Observação |
 |---|---|---|
-| `fat_vendas` | Um produto vendido em uma loja em uma data, com o estado civil do cliente | Existe `sk_produto`, logo o grão é **item de venda**, não venda. Mas a PK é `id_venda` — conflito documentado em [07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão) |
-| `fat_concorrente` | Um produto do concorrente em uma data | Sem loja e sem recorte demográfico. A fonte real não tem produto — ver [07](07-bloqueios-de-modelagem.md#2-fat_concorrente--fonte-incompatível-com-o-modelo) |
+| `fat_vendas` | Um produto vendido em uma loja em um **quadrimestre**, com o estado civil do cliente | Existe `sk_produto`, logo o grão é **item de venda**, não venda. Mas a PK é `id_venda` — conflito documentado em [07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão) |
+| `fat_concorrente` | Um produto do concorrente em um **quadrimestre** | Sem loja e sem recorte demográfico. A fonte real não tem produto e é **mensal**: os 4 meses são somados na carga — ver [07](07-bloqueios-de-modelagem.md#2-fat_concorrente--fonte-incompatível-com-o-modelo) |
+
+> **Atenção ao grão temporal.** As 6.621 linhas de `fat_vendas` continuam no
+> grão de item — o que mudou é a resolução temporal: cada linha sabe apenas em
+> qual quadrimestre ocorreu. A data real da venda não existe no schema
+> `public`; ela fica em `stg.cln_fat_vendas`.
 
 ### Métricas
 
@@ -93,7 +98,7 @@ O modelo usa **duas estratégias diferentes**:
 | `dim_produto` | **SCD tipo 2** | `data_inicio` / `data_fim` / `versao` / `flag_atual` + surrogate key `sk_produto` |
 | `dim_loja` | **SCD tipo 2** | idem |
 | `dim_estado_civil` | **SCD tipo 1 / estática** | Só `id_estado_civil` + `estado_civil`. Sem versionamento |
-| `dim_data` | Estática | Dimensão de calendário, imutável |
+| `dim_data` | Estática | Dimensão de calendário quadrimestral, imutável |
 
 ### Como o SCD2 é garantido pelo banco
 
@@ -130,7 +135,7 @@ não gera sobreposição. É o comportamento desejado.
 | `dim_produto` | `id_produto` (integer) | `sk_produto` (bigint identity) |
 | `dim_loja` | `id_loja` (integer) | `sk_loja` (bigint identity) |
 | `dim_estado_civil` | `estado_civil` (unique) | `id_estado_civil` — **não é identity**, o ETL fornece |
-| `dim_data` | `data` (date) — é a própria PK | nenhum |
+| `dim_data` | `(ano, quadrimestre)` — `uq_dim_data_ano_quad` | `id_data` (integer) — **não é identity**, o ETL fornece |
 
 **Ponto crítico:** `id_produto` e `id_loja` são chaves naturais **globais** —
 não existe coluna de origem/fonte na dimensão, e `ux_produto_atual` é único
@@ -146,7 +151,7 @@ analítica:
 | Ausente | Consequência |
 |---|---|
 | **`dim_cliente`** | `nome`, `email`, `telefone`, `sexo`, `data_nascimento` das fontes são descartados. Só `estado_civil` sobrevive, degenerado como FK em `fat_vendas`. Análise por gênero ou faixa de idade é impossível |
-| **Mês em `dim_data`** | Só existem `ano` e `quadrimestre`. Não há análise mensal — e a fonte do concorrente é mensal. Ver [07](07-bloqueios-de-modelagem.md#3-dim_data--sem-mês) |
+| **Qualquer data no `public`** | `dim_data` é quadrimestral: só `ano` e `quadrimestre`. Análise mensal ou diária é impossível no DW, e a fonte do concorrente (mensal) é agregada na carga. Ver [07](07-bloqueios-de-modelagem.md#3-dim_data--grão-quadrimestral) |
 | **Fato de serviços** | Itabuna tem 300 atendimentos (`banho`, `tosa`, `consulta veterinária`) sem tabela de destino |
 | **`dim_categoria`** | Categoria é atributo textual desnormalizado em `dim_produto`, não dimensão própria. Coerente com star schema |
 | **Preço de tabela / custo** | Sem custo não há margem. Só receita |
@@ -158,7 +163,7 @@ modelo foi refatorado no lugar:
 
 | Tabela | Posições removidas | Leitura provável |
 |---|---|---|
-| `dim_data` | 3 | Era `mes` ou `trimestre`, entre `ano` e `quadrimestre` |
+| `dim_data` | 3 | Era `mes` ou `trimestre`, entre `ano` e `quadrimestre`. A tabela foi reconstruída no grão quadrimestral — ver [07](07-bloqueios-de-modelagem.md#3-dim_data--grão-quadrimestral) |
 | `dim_estado_civil` | 1, 4, 5, 6, 7 | Era SCD2 (`sk`, `data_inicio`, `data_fim`, `versao`, `flag_atual`), foi rebaixada para estática |
 | `fat_vendas` | 3, 9 | Uma entre `sk_produto` e `sk_loja`; outra após `id_estado_civil` |
 | `fat_concorrente` | 6 | Uma após `valor_venda` |

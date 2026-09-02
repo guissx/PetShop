@@ -84,9 +84,9 @@ function main() {
   console.log(`  produtos conformados      ${r.produtos} (${r.produtos - 1} reais + 1 sentinela)`);
   console.log(`  entradas de de-para       ${r.deparaProduto}`);
   console.log(`  estado civil              ${r.estadoCivil} membros`);
-  console.log(`  calendário                ${r.calendario} dias`);
+  console.log(`  calendário                ${r.calendario} quadrimestres`);
   console.log(`  fatos de venda            ${r.fatos}`);
-  console.log(`  fatos de concorrente      ${r.concorrente}`);
+  console.log(`  fatos de concorrente      ${r.concorrente} (24 meses agregados)`);
   console.log(`  rejeitados                ${r.rejeitos}`);
   console.log(`  reconciliação             ${r.itensOrigem} itens = ${r.fatos} + ${r.rejeitos} ✓`);
 

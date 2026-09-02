@@ -32,6 +32,111 @@ END $$;
 DROP VIEW IF EXISTS public.vw_dim_produto_atual;
 DROP VIEW IF EXISTS public.vw_dim_loja_atual;
 
+-- ---------------------------------------------------------------------------
+-- MIGRAÇÃO DE GRÃO: dim_data diária -> quadrimestral
+-- ---------------------------------------------------------------------------
+-- A regra de negócio pede análise por quadrimestre e/ou ano. dim_data deixa de
+-- ter uma linha por dia (731) e passa a ter uma por (ano, quadrimestre) — 6.
+-- A PK deixa de ser `data date` e passa a ser `id_data integer` sequencial,
+-- e os dois fatos trocam a coluna `data` por `id_data`.
+--
+-- ATENÇÃO: este bloco APAGA DADO. É a única operação destrutiva do preflight.
+-- É seguro porque a carga é snapshot completo — 40_load_dw.sql já faz
+-- TRUNCATE nos dois fatos e recarrega tudo na mesma transação. Rodar o
+-- preflight sem rodar a carga em seguida deixa o DW vazio.
+--
+-- Guardado por IF EXISTS na coluna antiga: depois da primeira execução vira
+-- no-op, e o script continua idempotente.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'dim_data'
+          AND column_name = 'data'
+    ) THEN
+        RAISE NOTICE 'migrando dim_data para grão quadrimestral (apaga os fatos)';
+
+        TRUNCATE public.fat_vendas, public.fat_concorrente;
+
+        ALTER TABLE public.fat_vendas      DROP CONSTRAINT IF EXISTS fk_vendas_data;
+        ALTER TABLE public.fat_concorrente DROP CONSTRAINT IF EXISTS fk_conc_data;
+        DROP INDEX IF EXISTS public.ix_vendas_data;
+        DROP INDEX IF EXISTS public.ix_conc_data;
+        DROP INDEX IF EXISTS public.ux_conc_grao;
+
+        ALTER TABLE public.fat_vendas      DROP COLUMN IF EXISTS data;
+        ALTER TABLE public.fat_concorrente DROP COLUMN IF EXISTS data;
+        -- NOT NULL sem DEFAULT só passa porque as tabelas acabaram de ser truncadas.
+        ALTER TABLE public.fat_vendas      ADD COLUMN id_data integer NOT NULL;
+        ALTER TABLE public.fat_concorrente ADD COLUMN id_data integer NOT NULL;
+
+        DELETE FROM public.dim_data;
+        ALTER TABLE public.dim_data DROP CONSTRAINT IF EXISTS pk_dim_data;
+        ALTER TABLE public.dim_data DROP COLUMN data;
+        ALTER TABLE public.dim_data ADD COLUMN id_data integer NOT NULL;
+        ALTER TABLE public.dim_data ADD CONSTRAINT pk_dim_data PRIMARY KEY (id_data);
+    END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- DERIVA DE ESQUEMA: fat_concorrente.quantidade ausente no banco remoto
+-- ---------------------------------------------------------------------------
+-- Verificado no projeto Supabase de destino: a tabela tem apenas
+-- (id_concorrente, data, sk_produto, valor_venda). A coluna `quantidade`, que
+-- o 01_dw_ddl.sql declara NOT NULL e que a carga insere, NÃO existe lá — o
+-- INSERT do 40_load_dw.sql falharia com 42703.
+--
+-- Adicionada como anulável, preenchida com 0 e só então marcada NOT NULL, para
+-- funcionar tanto com a tabela vazia quanto populada.
+--
+-- O 0 aqui significa "não medido na origem", nunca "vendeu zero unidades":
+-- a fonte do concorrente é faturamento agregado e não traz quantidade.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'fat_concorrente'
+          AND column_name = 'quantidade'
+    ) THEN
+        RAISE NOTICE 'adicionando fat_concorrente.quantidade (ausente no destino)';
+        ALTER TABLE public.fat_concorrente ADD COLUMN quantidade integer;
+        UPDATE public.fat_concorrente SET quantidade = 0 WHERE quantidade IS NULL;
+        ALTER TABLE public.fat_concorrente ALTER COLUMN quantidade SET NOT NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'public.fat_concorrente'::regclass
+          AND conname = 'fat_concorrente_quantidade_check'
+    ) THEN
+        ALTER TABLE public.fat_concorrente
+            ADD CONSTRAINT fat_concorrente_quantidade_check CHECK (quantidade >= 0);
+    END IF;
+END $$;
+
+-- Garantias do novo grão, idempotentes.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = 'public.dim_data'::regclass
+                     AND conname = 'uq_dim_data_ano_quad') THEN
+        ALTER TABLE public.dim_data
+            ADD CONSTRAINT uq_dim_data_ano_quad UNIQUE (ano, quadrimestre);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = 'public.fat_vendas'::regclass
+                     AND conname = 'fk_vendas_data') THEN
+        ALTER TABLE public.fat_vendas ADD CONSTRAINT fk_vendas_data
+            FOREIGN KEY (id_data) REFERENCES public.dim_data(id_data);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = 'public.fat_concorrente'::regclass
+                     AND conname = 'fk_conc_data') THEN
+        ALTER TABLE public.fat_concorrente ADD CONSTRAINT fk_conc_data
+            FOREIGN KEY (id_data) REFERENCES public.dim_data(id_data);
+    END IF;
+END $$;
+
 -- `character` sem tamanho é char(1), mas o ETL carrega a UF `BA`.
 ALTER TABLE public.dim_loja
     ALTER COLUMN estado TYPE character(2) USING btrim(estado)::character(2);
@@ -104,7 +209,7 @@ CREATE INDEX IF NOT EXISTS ix_produto_bk
 CREATE INDEX IF NOT EXISTS ix_loja_bk
     ON public.dim_loja (id_loja, data_inicio, data_fim);
 CREATE INDEX IF NOT EXISTS ix_vendas_data
-    ON public.fat_vendas (data);
+    ON public.fat_vendas (id_data);
 CREATE INDEX IF NOT EXISTS ix_vendas_produto
     ON public.fat_vendas (sk_produto);
 CREATE INDEX IF NOT EXISTS ix_vendas_loja
@@ -112,11 +217,11 @@ CREATE INDEX IF NOT EXISTS ix_vendas_loja
 CREATE INDEX IF NOT EXISTS ix_vendas_estcivil
     ON public.fat_vendas (id_estado_civil);
 CREATE INDEX IF NOT EXISTS ix_conc_data
-    ON public.fat_concorrente (data);
+    ON public.fat_concorrente (id_data, sk_produto);
 CREATE INDEX IF NOT EXISTS ix_conc_produto
     ON public.fat_concorrente (sk_produto);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_conc_grao
-    ON public.fat_concorrente (data, sk_produto);
+    ON public.fat_concorrente (id_data, sk_produto);
 
 -- O schema public pode ser exposto pela Data API. A carga é administrativa;
 -- anon/authenticated não recebem escrita direta nessas tabelas.
@@ -166,6 +271,13 @@ COMMENT ON COLUMN public.fat_vendas.valor_venda IS
     'Valor total da linha: quantidade multiplicada pelo valor unitário da origem.';
 COMMENT ON COLUMN public.fat_concorrente.quantidade IS
     '0 significa não medido na fonte; não representa zero unidades vendidas.';
+COMMENT ON TABLE public.dim_data IS
+    'Grão quadrimestral (ano, quadrimestre): 1 = Jan-Abr, 2 = Mai-Ago, 3 = Set-Dez. '
+    'Não é trimestre. id_data é surrogate sequencial sem significado — ordenar '
+    'cronologicamente exige ORDER BY ano, quadrimestre.';
+COMMENT ON COLUMN public.fat_concorrente.valor_venda IS
+    'Soma dos meses do quadrimestre: a fonte é mensal e foi agregada pelo ETL. '
+    'O detalhe mensal existe apenas em stg.raw_concorrente.';
 
 COMMIT;
 
