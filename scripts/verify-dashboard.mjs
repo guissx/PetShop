@@ -1,0 +1,53 @@
+// End-to-end checks against a running local app. No database mutations.
+import {chromium} from '@playwright/test';
+import {loadEnvFile} from 'node:process';
+import {mkdir} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+loadEnvFile(new URL('../.env',import.meta.url));
+const base=process.env.TEST_BASE_URL??'http://127.0.0.1:3000';
+await mkdir(new URL('../.artifacts/',import.meta.url),{recursive:true});
+const browser=await chromium.launch({headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+try{
+ const unauthorized=await page.request.get(base+'/api/analytics');assert.equal(unauthorized.status(),401);
+ const unauthorizedChat=await page.request.post(base+'/api/chat',{data:{}});assert.equal(unauthorizedChat.status(),401);
+ await page.goto(base+'/produtos');await page.waitForURL('**/login');
+ await page.screenshot({path:'.artifacts/login.png',fullPage:true});
+ await page.getByLabel('Usuário',{exact:true}).fill(process.env.DEMO_USERNAME);
+ await page.getByLabel('Senha',{exact:true}).fill('senha-incorreta');
+ await page.getByRole('button',{name:'Entrar no painel'}).click();await page.getByRole('alert').waitFor();
+ await page.getByLabel('Usuário',{exact:true}).fill(process.env.DEMO_USERNAME);
+ await page.getByLabel('Senha',{exact:true}).fill(process.env.DEMO_PASSWORD);
+ await page.getByRole('button',{name:'Entrar no painel'}).click();await page.getByRole('heading',{name:'O negócio, em perspectiva.'}).waitFor();
+ await page.getByText('R$ 663.919,81',{exact:true}).first().waitFor();
+ await page.screenshot({path:'.artifacts/dashboard-desktop.png',fullPage:true});
+ const result=await page.request.get(base+'/api/analytics');assert.equal(result.status(),200);const data=await result.json();assert.equal(Number(data.resumo.receita),663919.81);assert.equal(Number(data.resumo.quantidade),8274);
+ assert.equal(data.produtos.length,17);assert.equal(data.filiais.length,3);
+ await page.getByRole('combobox',{name:'Ano',exact:true}).click();await page.getByRole('option',{name:'2024',exact:true}).click();await page.getByText('R$ 645.521,02',{exact:true}).first().waitFor();assert.match(page.url(),/ano=2024/);
+ await page.getByRole('combobox',{name:'Ano',exact:true}).click();await page.getByRole('option',{name:'2025',exact:true}).click();await page.getByText('R$ 663.919,81',{exact:true}).first().waitFor();
+ await page.getByRole('link',{name:'Produtos e perfil',exact:true}).click();await page.getByRole('heading',{name:'Pequenas escolhas. Grande impacto.'}).waitFor();
+ await page.getByRole('button',{name:'Ver todos os produtos'}).click();await page.getByRole('button',{name:'Mostrar cinco'}).waitFor();
+ await page.getByRole('button',{name:'Unidades',exact:true}).click();await page.getByRole('columnheader',{name:'% das unidades'}).waitFor();
+ await page.screenshot({path:'.artifacts/produtos.png',fullPage:true});
+ await page.getByRole('link',{name:'Nossas filiais',exact:true}).click();await page.getByRole('button',{name:'Ver filial Itabuna',exact:true}).click();await page.waitForURL('**loja=2');await page.getByRole('heading',{name:'Itabuna',exact:true}).waitFor();
+ await page.screenshot({path:'.artifacts/filiais.png',fullPage:true});
+ await page.getByRole('button',{name:'Visão estadual'}).click();await page.waitForURL('**loja=0');
+ await page.getByRole('link',{name:'Concorrência',exact:true}).click();await page.getByRole('heading',{name:'Nosso lugar no mercado.'}).waitFor();
+ await page.getByLabel('Variação simulada da receita').fill('20');assert.match(await page.locator('.scenario-result').innerText(),/796\.703,77/);
+ await page.screenshot({path:'.artifacts/concorrencia.png',fullPage:true});
+ await page.getByRole('combobox',{name:'Filial',exact:true}).click();await page.getByRole('option',{name:'Salvador',exact:true}).click();await page.getByRole('heading',{name:'Uma comparação para toda a rede.'}).waitFor();
+ await page.getByRole('button',{name:'Comparar toda a rede'}).click();await page.getByRole('heading',{name:'Lado a lado, quadrimestre a quadrimestre'}).waitFor();
+ await page.getByRole('button',{name:'Pergunte aos dados'}).click();await page.getByRole('dialog').waitFor();
+ if(!process.env.GROQ_API_KEY||!process.env.GROQ_MODEL){await page.getByRole('heading',{name:'Estamos preparando o assistente.'}).waitFor();const r=await page.request.post(base+'/api/chat',{headers:{Origin:base},data:{}});assert.equal(r.status(),503);}
+ await page.keyboard.press('Escape');
+ const badOrigin=await page.request.post(base+'/api/auth/logout',{headers:{Origin:'https://example.org'}});assert.equal(badOrigin.status(),403);
+ await page.setViewportSize({width:390,height:844});
+ await page.getByRole('button',{name:'Abrir menu'}).click();await page.getByRole('link',{name:'Visão geral',exact:true}).click();await page.getByRole('heading',{name:'O negócio, em perspectiva.'}).waitFor();
+ const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);assert.equal(overflow,false);
+ await page.screenshot({path:'.artifacts/dashboard-mobile.png',fullPage:true});
+ await page.getByRole('button',{name:'Abrir menu'}).click();await page.getByRole('button',{name:'Sair',exact:true}).click();await page.waitForURL('**/login');
+ assert.equal((await page.request.get(base+'/api/analytics')).status(),401);
+ assert.deepEqual(errors,[]);
+ console.log('E2E OK: login, acesso, totais reais, filtros, produtos, mapa, cenarios, chat indisponivel, logout, mobile.');
+}finally{await browser.close();}

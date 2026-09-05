@@ -1,5 +1,9 @@
 # PetShop Nosso Aumigo — Data Warehouse e ETL
 
+O dashboard executivo Next.js está em `apps/web`, com consultas por views no
+Supabase. Veja [execução, testes e configuração da Vercel](docs/08-dashboard.md).
+Com Node 22 e dependências instaladas, execute `npm run dev` na raiz.
+
 Integra quatro fontes heterogêneas de três lojas de petshop, mais o faturamento
 de um concorrente, num modelo dimensional PostgreSQL hospedado no Supabase.
 

@@ -1,0 +1,1 @@
+export default function Loading(){return <main className="loading-page" role="status"><div className="pulse-dot"/><h2>Conectando os resultados…</h2><p>Organizando uma visão clara do negócio.</p></main>;}

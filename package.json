@@ -2,19 +2,36 @@
   "name": "petshop-dw",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "type": "module",
   "description": "ETL das lojas PetShop para o data warehouse dimensional no Supabase",
   "scripts": {
     "etl": "node etl/main.mjs",
     "etl:dry": "node etl/main.mjs --dry",
     "deploy": "node etl/deploy.mjs",
-    "test": "node --test --test-isolation=none",
-    "verify": "node --test --test-isolation=none && node etl/main.mjs --dry"
+    "test": "node --test test/etl.test.mjs",
+    "verify": "npm test && npm run test:dashboard && node etl/main.mjs --dry && npm run typecheck",
+    "dev": "npm run dev --workspace=@petshop/web",
+    "build": "npm run build --workspace=@petshop/web",
+    "typecheck": "npm run typecheck --workspace=@petshop/web",
+    "test:dashboard": "tsx --test test/dashboard.test.ts",
+    "views:check": "node scripts/manage-views.mjs --check",
+    "views:apply": "node scripts/manage-views.mjs --apply",
+    "test:e2e": "node scripts/verify-dashboard.mjs",
+    "test:ui": "node scripts/verify-redesign.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.63.0",
+    "tsx": "4.23.13"
   }
 }

@@ -1,0 +1,7 @@
+{
+  "name": "@petshop/analytics",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {".": "./src/index.ts", "./session": "./src/session.ts", "./assistant": "./src/assistant.ts"}
+}
