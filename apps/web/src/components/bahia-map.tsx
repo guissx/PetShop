@@ -13,6 +13,7 @@ const polygons=geometry.features.flatMap(f=>f.geometry.type==='MultiPolygon'
 const outline=polygons.flatMap(p=>p.map(r=>r.map((v,i)=>`${i?'L':'M'}${project(v).join(',')}`).join(' ')+'Z')).join(' ');
 const points=stores.map(store=>({...store,point:project([store.lon,store.lat])}));
 const route=points.map((s,i)=>`${i?'L':'M'}${s.point.join(',')}`).join(' ')+' Z';
+const connections=points.map((point,index)=>({from:point.point,to:points[(index+1)%points.length].point,id:point.id}));
 
 export default function BahiaMap({selected,onSelect}:{selected:number;onSelect:(id:number)=>void}){
   const reduced=useReducedMotion();
@@ -37,7 +38,10 @@ export default function BahiaMap({selected,onSelect}:{selected:number;onSelect:(
       <motion.text x="180" y="235" className="map-state-label" fontSize="25" letterSpacing="8" animate={{opacity:active?0:.22}} transition={{duration:reduced?0:.3}}>BAHIA</motion.text>
       <text x="436" y="397" className="map-ocean-label" fontSize="10" transform="rotate(-72 436 397)">OCEANO ATLÂNTICO</text>
       <motion.path d={route} className="map-network-area" initial={{opacity:0}} animate={{opacity:1}} transition={{duration:reduced?0:.8,delay:reduced?0:.6}} aria-hidden="true"/>
-      <motion.path d={route} className="map-route" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" initial={{pathLength:0}} animate={{pathLength:1}} transition={{duration:reduced?0:1.6,delay:reduced?0:.2,ease:'easeInOut'}} aria-hidden="true"/>
+      {connections.map(({from,to,id},index)=><motion.line key={id}
+        x1={from[0]} y1={from[1]} className="map-route" strokeWidth="1.7" strokeLinecap="round"
+        vectorEffect="non-scaling-stroke" initial={{x2:from[0],y2:from[1]}} animate={{x2:to[0],y2:to[1]}}
+        transition={{duration:reduced?0:.9,delay:reduced?0:.15+index*.2,ease:'easeInOut'}} aria-hidden="true"/>)}
       {points.map(s=>{
         const [x,y]=s.point;const current=camera===s.id;const labelLeft=s.id===3;
         return <g key={s.id} className="map-pin" role="button" tabIndex={0} aria-label={`Ver filial ${s.name}`} aria-pressed={current}

@@ -10,4 +10,4 @@ Corrigir baixo contraste, fontes pouco legíveis, opções de selects nativos e 
 
 ## Limites
 
-Aplicação de trabalho acadêmico, sem fluxo de cadastro. O mapa representa cidades, não endereços. O assistente continua indisponível quando não configurado. Validação visual do redesign depende de acesso ao navegador; testes de compilação não substituem essa verificação.
+Aplicação de trabalho acadêmico, sem fluxo de cadastro. O mapa representa cidades, não endereços. O assistente continua indisponível quando não configurado. Por solicitação posterior do usuário, previsões exploratórias de faturamento são permitidas: tendência anual dos dois últimos anos completos aplicada aos quadrimestres do último ano, com crescimento composto para os anos futuros solicitados e método explícito. Diferem das simulações com percentual escolhido pelo usuário. Testes de compilação não substituem verificação visual.

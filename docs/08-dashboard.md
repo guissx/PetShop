@@ -69,7 +69,20 @@ Fonte da geometria: https://servicodados.ibge.gov.br/api/v3/malhas/estados/29?fo
 
 O assistente só consulta funções permitidas para resumo, produtos e concorrência.
 Não executa SQL nem modifica dados. Cenários exigem percentual explícito e usam
-cálculo determinístico, com base no filtro selecionado. Não há previsão estatística.
+cálculo determinístico. Perguntas podem indicar ano e filial; continuações mantêm
+o contexto das perguntas anteriores. A evolução compara quadrimestres nas views.
+
+Previsões de faturamento usam os dois últimos anos completos da filial ou rede:
+calculam a variação da receita anual e a aplicam a cada quadrimestre do último ano.
+Anos futuros usam crescimento composto: receita do quadrimestre-base multiplicada
+por `(1 + taxa anual) ^ (ano-alvo - ano-base)`. São aceitos anos isolados, listas,
+intervalos e continuações como “e 2028?” ou “no ano seguinte?”, com até 20 anos
+por resposta. Para anos históricos disponíveis, são apresentados valores reais.
+Quanto maior o horizonte, maior a incerteza da extrapolação. Valores
+são calculados no servidor, preservando a distribuição quadrimestral, e a resposta
+identifica método, base e limitações. Trata-se de extrapolação exploratória, sem
+intervalo de confiança ou garantia de resultado. Dados incompletos ou base zero
+produzem uma explicação, sem números inventados.
 Sem chave/modelo Groq, o painel funciona e o assistente permanece indisponível.
 Ao configurar Groq, use o ID de um modelo da conta com suporte a tool calling.
 O endpoint verifica a disponibilidade do modelo e trata limites e timeout.
