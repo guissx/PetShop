@@ -8,6 +8,7 @@ import { conformarTudo, paraIso } from '../etl/conform.mjs';
 import { emitirCarga, emitirCln, lit } from '../etl/emit.mjs';
 import { validarDestino, validarRef } from '../etl/deploy.mjs';
 import { extrairInserts } from '../etl/lib/sqlparse.mjs';
+import { FATOR_FATO } from '../etl/config.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const DADOS = resolve(AQUI, '..', 'data');
@@ -57,6 +58,9 @@ test('fontes completas reconciliam exatamente com o fato', () => {
 
   assert.equal(c.resumo.itensOrigem, 6621);
   assert.equal(c.resumo.fatos, 6621);
+  // public.fat_vendas e agregado: uma linha por produto x loja x quadrimestre
+  // x estado civil. O grao de item fica so em stg.cln_fat_vendas.
+  assert.equal(c.resumo.fatosAgregados, 1382);
   assert.equal(c.resumo.rejeitos, 0);
   // 24 meses de origem agregados em 6 quadrimestres
   assert.equal(c.resumo.concorrente, 6);
@@ -67,6 +71,37 @@ test('fontes completas reconciliam exatamente com o fato', () => {
 
   const valor = c.fatos.reduce((s, f) => s + Number(f.valor_venda), 0);
   assert.equal(Number(valor.toFixed(2)), 1309440.83);
+});
+
+test('agregação do fato preserva unidade e dinheiro e declara o grão na chave', () => {
+  const c = conformarTudo(extrairTudo(DADOS));
+
+  // Nada some entre o grão de item e o grão do DW.
+  const soma = (linhas, campo) => linhas.reduce((t, l) => t + Number(l[campo]), 0);
+  assert.equal(soma(c.fatosAgregados, 'quantidade'), soma(c.fatos, 'quantidade'));
+  assert.equal(Number(soma(c.fatosAgregados, 'valor_venda').toFixed(2)), 1309440.83);
+  assert.equal(soma(c.fatosAgregados, 'itens_agregados'), c.fatos.length);
+
+  // Uma linha por combinação dimensional — é isso que o grão significa.
+  const combinacoes = new Set(c.fatosAgregados.map(
+    f => `${f.id_produto}|${f.id_loja}|${f.id_data}|${f.id_estado_civil}`));
+  assert.equal(combinacoes.size, c.fatosAgregados.length);
+
+  // E a chave codificada devolve a combinação que a linha declara.
+  for (const f of c.fatosAgregados) {
+    assert.equal(Math.floor(f.id_venda / FATOR_FATO.data), f.id_data);
+    assert.equal(Math.floor(f.id_venda / FATOR_FATO.loja) % 10, f.id_loja);
+    assert.equal(Math.floor(f.id_venda / FATOR_FATO.produto) % 1000, f.id_produto);
+    assert.equal(f.id_venda % 1000, f.id_estado_civil);
+  }
+
+  // A âncora do lookup SCD2 é o primeiro dia do quadrimestre da própria linha.
+  const periodoPor = new Map(c.calendario.map(d => [d.id_data, d]));
+  for (const f of c.fatosAgregados) {
+    const d = periodoPor.get(f.id_data);
+    const mes = String((d.quadrimestre - 1) * 4 + 1).padStart(2, '0');
+    assert.equal(f.data_referencia, `${d.ano}-${mes}-01`);
+  }
 });
 
 test('dim_data é quadrimestral e id_data é sequencial na ordem cronológica', () => {
@@ -122,11 +157,18 @@ test('SQL final implementa SCD2, lock e valida antes do commit', () => {
   assert.match(sql, /pg_advisory_xact_lock/);
   assert.match(sql, /UPDATE public\.dim_produto/);
   assert.match(sql, /ultima_versao \+ 1/);
-  assert.match(sql, /c\.data::timestamp >= p\.data_inicio/);
+  assert.match(sql, /c\.data_referencia::timestamp >= p\.data_inicio/);
   // o DW é quadrimestral: os fatos carregam id_data, nunca a data
   assert.match(sql, /INSERT INTO public\.fat_vendas\s*\n\s*\(id_venda, sk_produto, sk_loja, id_data,/);
   assert.match(sql, /INSERT INTO public\.dim_data \(id_data, ano, quadrimestre\)/);
   assert.match(sql, /agregação do concorrente: % meses na origem/);
+  // fat_vendas vem pronto do conformador: projeção, nunca GROUP BY na carga
+  assert.match(sql, /FROM stg\.cln_fat_vendas_dw c/);
+  const insercao = sql.slice(sql.indexOf('INSERT INTO public.fat_vendas'));
+  assert.doesNotMatch(insercao.slice(0, insercao.indexOf(';')), /GROUP BY/);
+  // e a carga recusa commit se a agregação ou o grão não fecharem
+  assert.match(sql, /stg\.vw_check_agregacao_vendas/);
+  assert.match(sql, /grão violado — combinação dimensional repetida/);
   assert.match(sql, /status = 'concluida'/);
 
   const validacao = sql.indexOf('Falhar aqui desfaz');

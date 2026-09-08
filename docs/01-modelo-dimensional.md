@@ -68,13 +68,19 @@ erDiagram
 
 | Fato | Grão declarado pelo modelo | Observação |
 |---|---|---|
-| `fat_vendas` | Um produto vendido em uma loja em um **quadrimestre**, com o estado civil do cliente | Existe `sk_produto`, logo o grão é **item de venda**, não venda. Mas a PK é `id_venda` — conflito documentado em [07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão) |
+| `fat_vendas` | Um produto vendido em uma loja em um **quadrimestre**, com o estado civil do cliente | **Grão agregado**: uma linha por combinação das quatro dimensões — 1.382 linhas. `id_venda` deixou de ser o número do pedido e passou a codificar a própria combinação. Ver [07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão) |
 | `fat_concorrente` | Um produto do concorrente em um **quadrimestre** | Sem loja e sem recorte demográfico. A fonte real não tem produto e é **mensal**: os 4 meses são somados na carga — ver [07](07-bloqueios-de-modelagem.md#2-fat_concorrente--fonte-incompatível-com-o-modelo) |
 
-> **Atenção ao grão temporal.** As 6.621 linhas de `fat_vendas` continuam no
-> grão de item — o que mudou é a resolução temporal: cada linha sabe apenas em
-> qual quadrimestre ocorreu. A data real da venda não existe no schema
-> `public`; ela fica em `stg.cln_fat_vendas`.
+> **Atenção ao grão.** `fat_vendas` **não** está no grão de item. Os 6.621
+> itens das fontes são agregados em **1.382 linhas**, uma por produto x loja x
+> quadrimestre x estado civil — exatamente as quatro FKs que a tabela declara.
+> `quantidade` e `valor_venda` são somas.
+>
+> Consequência: no schema `public` não existe data da venda, número de pedido,
+> nem contagem de itens. Faturamento, unidades e todos os indicadores do
+> projeto continuam exatos, mas **quantidade de pedidos, itens por pedido e
+> ticket médio não são deriváveis do DW** — dependem de `stg.cln_fat_vendas`,
+> que preserva o grão de item, a data real e o número do pedido de origem.
 
 ### Métricas
 

@@ -254,12 +254,25 @@ CREATE TABLE IF NOT EXISTS stg.cln_dim_estado_civil (
     estado_civil     varchar(30) NOT NULL UNIQUE
 );
 
--- MIGRACAO: a camada cln mudou de grao (data diaria -> id_data quadrimestral).
--- `CREATE TABLE IF NOT EXISTS` nao altera tabela existente, entao as tres
--- tabelas afetadas sao derrubadas e recriadas. Nao ha perda: cln_* e 100%
--- derivada de raw_* + map_* e e TRUNCADA a cada carga de qualquer forma.
+-- MIGRACAO: a camada cln mudou de grao duas vezes — data diaria -> id_data
+-- quadrimestral, e depois item -> agregado no destino (cln_fat_vendas_dw).
+-- `CREATE TABLE IF NOT EXISTS` nao altera tabela existente, entao as tabelas
+-- afetadas sao derrubadas e recriadas. Nao ha perda: cln_* e 100% derivada de
+-- raw_* + map_* e e TRUNCADA a cada carga de qualquer forma.
+-- As views de conferencia dependem destas tabelas e impedem o DROP:
+--   ERROR: cannot drop table stg.cln_dim_data because other objects depend on it
+-- Todas sao recriadas no fim deste mesmo arquivo, entao derruba-las aqui e
+-- seguro. Preferido a DROP ... CASCADE, que apagaria dependencia nao prevista
+-- sem avisar.
+DROP VIEW IF EXISTS stg.vw_check_data_fora_calendario;
+DROP VIEW IF EXISTS stg.vw_check_quadrimestre_derivado;
+DROP VIEW IF EXISTS stg.vw_check_agregacao_vendas;
+DROP VIEW IF EXISTS stg.vw_check_agregacao_concorrente;
+DROP VIEW IF EXISTS stg.vw_check_reconciliacao;
+
 DROP TABLE IF EXISTS stg.cln_dim_data;
 DROP TABLE IF EXISTS stg.cln_fat_vendas;
+DROP TABLE IF EXISTS stg.cln_fat_vendas_dw;
 DROP TABLE IF EXISTS stg.cln_fat_concorrente;
 
 -- Grao QUADRIMESTRAL, igual ao destino: 6 linhas para 2024-2025.
@@ -293,6 +306,39 @@ CREATE TABLE IF NOT EXISTS stg.cln_fat_vendas (
     id_venda_origem   int           NOT NULL,
     seq_item          int           NOT NULL,
     id_produto_origem int           NOT NULL
+);
+
+-- -----------------------------------------------------------------------------
+-- Grao AGREGADO, igual ao destino: uma linha por produto x loja x quadrimestre
+-- x estado civil. Os 6.621 itens da tabela acima viram 1.382 linhas aqui, e e
+-- esta tabela que public.fat_vendas recebe.
+--
+-- A agregacao acontece no conformador (etl/conform.mjs), nao neste SQL: os
+-- lugares onde N linhas viram 1 ficam todos em JavaScript, cobertos por teste,
+-- e a carga vira projecao mais lookup SCD2.
+--
+-- O UNIQUE abaixo DECLARA o grao. Sem ele, uma agregacao malfeita duplicaria
+-- medida em silencio em vez de falhar.
+CREATE TABLE IF NOT EXISTS stg.cln_fat_vendas_dw (
+    -- Chave codificada: id_data, id_loja, id_produto e id_estado_civil em casas
+    -- decimais proprias. Ver FATOR_FATO em etl/config.mjs.
+    id_venda         bigint        NOT NULL PRIMARY KEY,
+    sk_produto       bigint        NOT NULL,
+    sk_loja          bigint        NOT NULL,
+    id_data          integer       NOT NULL,
+    id_estado_civil  integer       NOT NULL,
+    quantidade       integer       NOT NULL CHECK (quantidade > 0),
+    valor_venda      numeric(14,2) NOT NULL CHECK (valor_venda >= 0),
+    -- rastreio
+    -- quantos itens de cln_fat_vendas entraram nesta linha; a soma tem que dar
+    -- o total de itens conformados
+    itens_agregados  integer       NOT NULL CHECK (itens_agregados > 0),
+    -- primeiro dia do quadrimestre; existe SO para ancorar o lookup SCD2 de
+    -- produto e loja. Nao vai para o destino. No grao agregado nao existe uma
+    -- data real da venda — e dim_data e quadrimestral, entao o DW nao saberia
+    -- representar uma troca de versao dentro do quadrimestre de qualquer forma.
+    data_referencia  date          NOT NULL,
+    CONSTRAINT uq_cln_vendas_dw_grao UNIQUE (sk_produto, sk_loja, id_data, id_estado_civil)
 );
 
 -- A fonte e MENSAL (24 linhas) e o destino e QUADRIMESTRAL (6 linhas): esta
@@ -445,8 +491,31 @@ WHERE d.ano <> EXTRACT(YEAR FROM f.data)::smallint
    OR d.quadrimestre <> CEIL(EXTRACT(MONTH FROM f.data) / 4.0)::smallint
 GROUP BY 1, 2, 3, 4;
 
+-- Agregacao das vendas: os itens de cln_fat_vendas viram uma linha por
+-- combinacao dimensional em cln_fat_vendas_dw. Contagem nao basta — uma
+-- agregacao errada preserva a contagem de grupos e perde medida. Confere as
+-- tres coisas que nao podem sumir: linha, unidade e dinheiro.
+CREATE OR REPLACE VIEW stg.vw_check_agregacao_vendas
+WITH (security_invoker = true) AS
+SELECT i.itens                                AS itens_cln,
+       a.itens_contabilizados,
+       a.linhas_dw,
+       i.itens - a.itens_contabilizados       AS diferenca_itens,
+       i.quantidade - a.quantidade            AS diferenca_quantidade,
+       i.valor_venda - a.valor_venda          AS diferenca_valor
+FROM (SELECT count(*)                        AS itens,
+             coalesce(sum(quantidade), 0)    AS quantidade,
+             coalesce(sum(valor_venda), 0)   AS valor_venda
+        FROM stg.cln_fat_vendas) i
+CROSS JOIN (SELECT coalesce(sum(itens_agregados), 0) AS itens_contabilizados,
+                   count(*)                          AS linhas_dw,
+                   coalesce(sum(quantidade), 0)      AS quantidade,
+                   coalesce(sum(valor_venda), 0)     AS valor_venda
+              FROM stg.cln_fat_vendas_dw) a;
+-- As tres colunas `diferenca_*` DEVEM ser 0.
+
 -- Agregacao do concorrente: 24 meses da origem tem que virar 6 quadrimestres
--- sem perder linha nem dinheiro. E o unico ponto do pipeline onde N vira 1.
+-- sem perder linha nem dinheiro. Mesma ideia de vw_check_agregacao_vendas.
 CREATE OR REPLACE VIEW stg.vw_check_agregacao_concorrente
 WITH (security_invoker = true) AS
 SELECT r.id_carga,

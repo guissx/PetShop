@@ -25,7 +25,7 @@ async function query(sql, readOnly=true) {
 }
 try {
  console.log('Destino:',ref);
- console.log(await query('SELECT count(*)::int AS itens, sum(quantidade)::int AS quantidade, sum(valor_venda)::text AS receita FROM public.fat_vendas'));
+ console.log(await query('SELECT count(*)::int AS linhas, sum(quantidade)::int AS quantidade, sum(valor_venda)::text AS receita FROM public.fat_vendas'));
  if(apply) {await query(await readFile(new URL('../sql/03_dashboard_views.sql',import.meta.url),'utf8'),false);console.log('Views aplicadas; fatos preservados.');}
  console.log(await query('SELECT ano, receita, quantidade FROM public.vw_bi_resumo WHERE quadrimestre=0 AND id_loja=0 ORDER BY ano'));
 } catch(e) {console.error('Falha:',e.code??e.message);process.exitCode=1;} finally {await client?.end().catch(()=>{});}

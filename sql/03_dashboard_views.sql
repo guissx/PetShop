@@ -1,9 +1,29 @@
 -- Somente views: nao altera fatos, dimensoes ou dados do ETL.
 BEGIN;
-CREATE OR REPLACE VIEW public.vw_bi_vendas WITH (security_invoker=true) AS
+
+-- CREATE OR REPLACE VIEW nao remove coluna. Quando fat_vendas passou ao grao
+-- agregado a medida de itens deixou de existir, e o replace falharia com
+--   ERROR: cannot drop columns from view
+-- Derrubar na ordem inversa da dependencia e recriar logo abaixo mantem o
+-- arquivo idempotente e reaplicavel. Sem CASCADE de proposito: uma dependencia
+-- nao prevista tem que aparecer como erro, nao sumir em silencio.
+DO $$ DECLARE v text; BEGIN
+ FOREACH v IN ARRAY ARRAY['vw_bi_concorrencia','vw_bi_comparacao_produtos','vw_bi_filiais','vw_bi_estado_civil','vw_bi_categorias','vw_bi_participacao','vw_bi_produtos','vw_bi_evolucao','vw_bi_resumo','vw_bi_totais','vw_bi_periodos','vw_bi_contexto','vw_bi_vendas'] LOOP
+  EXECUTE format('DROP VIEW IF EXISTS public.%I',v);
+ END LOOP;
+END $$;
+
+-- fat_vendas ja esta no grao produto x loja x quadrimestre x estado civil, entao
+-- esta view e 1:1 com o fato. O GROUP BY continua aqui de proposito: ele agrupa
+-- por id_produto/id_loja (chave natural), nao por sk, e portanto reune as
+-- versoes SCD2 do mesmo produto — que e o que o BI quer ver.
+--
+-- Nao existe medida de linhas de pedido: no grao agregado o DW nao sabe quantos
+-- itens formaram cada fato. Essa contagem vive em stg.cln_fat_vendas.
+CREATE VIEW public.vw_bi_vendas WITH (security_invoker=true) AS
 SELECT p.sk_produto, p.id_produto, p.produto, p.categoria,
        l.sk_loja, l.id_loja, l.loja, l.cidade, e.id_estado_civil, e.estado_civil,
-       d.ano, d.quadrimestre, count(*)::bigint AS itens,
+       d.ano, d.quadrimestre,
        sum(f.quantidade)::bigint AS quantidade, sum(f.valor_venda)::numeric AS receita
 FROM public.fat_vendas f
 JOIN public.dim_produto p ON p.sk_produto=f.sk_produto
@@ -14,26 +34,26 @@ GROUP BY p.sk_produto,p.id_produto,p.produto,p.categoria,l.sk_loja,l.id_loja,l.l
 
 -- Cada fato participa de quatro contextos disjuntos de consulta.
 -- quadrimestre=0 significa anual; id_loja=0 significa rede.
-CREATE OR REPLACE VIEW public.vw_bi_contexto WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_contexto WITH (security_invoker=true) AS
 SELECT v.id_produto,v.produto,v.categoria,v.id_estado_civil,v.estado_civil,v.ano,
        q.quadrimestre,s.id_loja,s.loja,s.cidade,
        CASE WHEN q.quadrimestre=0 THEN 'anual' ELSE 'quadrimestral' END AS granularidade,
        CASE WHEN s.id_loja=0 THEN 'rede' ELSE 'filial' END AS abrangencia,
-       sum(v.itens)::bigint AS itens,sum(v.quantidade)::bigint AS quantidade,sum(v.receita)::numeric AS receita
+       sum(v.quantidade)::bigint AS quantidade,sum(v.receita)::numeric AS receita
 FROM public.vw_bi_vendas v
 CROSS JOIN LATERAL (VALUES (0),(v.quadrimestre)) q(quadrimestre)
 CROSS JOIN LATERAL (VALUES (0,'Toda a rede'::text,'Todas as cidades'::text),(v.id_loja,v.loja::text,v.cidade::text)) s(id_loja,loja,cidade)
 GROUP BY v.id_produto,v.produto,v.categoria,v.id_estado_civil,v.estado_civil,v.ano,q.quadrimestre,s.id_loja,s.loja,s.cidade;
 
-CREATE OR REPLACE VIEW public.vw_bi_periodos WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_periodos WITH (security_invoker=true) AS
 SELECT DISTINCT ano,quadrimestre FROM public.dim_data;
 
-CREATE OR REPLACE VIEW public.vw_bi_totais WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_totais WITH (security_invoker=true) AS
 SELECT ano,quadrimestre,id_loja,granularidade,abrangencia,
-       sum(itens)::bigint AS itens,sum(quantidade)::bigint AS quantidade,sum(receita)::numeric AS receita
+       sum(quantidade)::bigint AS quantidade,sum(receita)::numeric AS receita
 FROM public.vw_bi_contexto GROUP BY ano,quadrimestre,id_loja,granularidade,abrangencia;
 
-CREATE OR REPLACE VIEW public.vw_bi_resumo WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_resumo WITH (security_invoker=true) AS
 SELECT a.*,b.receita AS receita_anterior,b.quantidade AS quantidade_anterior,
        a.receita-b.receita AS diferenca_receita,a.quantidade-b.quantidade AS diferenca_quantidade,
        100.0*(a.receita-b.receita)/NULLIF(b.receita,0) AS variacao_receita,
@@ -41,10 +61,10 @@ SELECT a.*,b.receita AS receita_anterior,b.quantidade AS quantidade_anterior,
 FROM public.vw_bi_totais a LEFT JOIN public.vw_bi_totais b
  ON b.ano=a.ano-1 AND b.quadrimestre=a.quadrimestre AND b.id_loja=a.id_loja;
 
-CREATE OR REPLACE VIEW public.vw_bi_evolucao WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_evolucao WITH (security_invoker=true) AS
 SELECT * FROM public.vw_bi_resumo WHERE quadrimestre<>0;
 
-CREATE OR REPLACE VIEW public.vw_bi_produtos WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_produtos WITH (security_invoker=true) AS
 WITH agregado AS (
  SELECT ano,quadrimestre,id_loja,granularidade,abrangencia,id_produto,produto,categoria,
         sum(quantidade)::bigint AS quantidade,sum(receita)::numeric AS receita
@@ -56,26 +76,26 @@ SELECT *,dense_rank() OVER (PARTITION BY ano,quadrimestre,id_loja ORDER BY quant
          100.0*quantidade/NULLIF(sum(quantidade) OVER (PARTITION BY ano,quadrimestre,id_loja),0) AS participacao_quantidade
 FROM agregado;
 
-CREATE OR REPLACE VIEW public.vw_bi_participacao WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_participacao WITH (security_invoker=true) AS
 SELECT * FROM public.vw_bi_produtos;
 
-CREATE OR REPLACE VIEW public.vw_bi_categorias WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_categorias WITH (security_invoker=true) AS
 SELECT ano,quadrimestre,id_loja,granularidade,abrangencia,categoria,
  sum(quantidade)::bigint AS quantidade,sum(receita)::numeric AS receita
 FROM public.vw_bi_contexto GROUP BY ano,quadrimestre,id_loja,granularidade,abrangencia,categoria;
 
-CREATE OR REPLACE VIEW public.vw_bi_estado_civil WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_estado_civil WITH (security_invoker=true) AS
 SELECT ano,quadrimestre,id_loja,granularidade,abrangencia,id_estado_civil,estado_civil,
  sum(quantidade)::bigint AS quantidade,sum(receita)::numeric AS receita
 FROM public.vw_bi_contexto GROUP BY ano,quadrimestre,id_loja,granularidade,abrangencia,id_estado_civil,estado_civil;
 
-CREATE OR REPLACE VIEW public.vw_bi_filiais WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_filiais WITH (security_invoker=true) AS
 SELECT r.*,l.loja,l.cidade FROM public.vw_bi_resumo r
 JOIN (SELECT DISTINCT id_loja,loja,cidade FROM public.vw_bi_contexto WHERE id_loja<>0) l USING(id_loja)
 WHERE r.id_loja<>0;
 
 -- Une as chaves dos dois anos para incluir produtos sem vendas no ano atual.
-CREATE OR REPLACE VIEW public.vw_bi_comparacao_produtos WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_comparacao_produtos WITH (security_invoker=true) AS
 WITH p AS (
  SELECT ano,quadrimestre,id_loja,id_produto,min(produto) AS produto,
         sum(quantidade)::bigint AS quantidade,sum(receita)::numeric AS receita
@@ -93,7 +113,7 @@ FROM chaves k LEFT JOIN p a USING(ano,quadrimestre,id_loja,id_produto)
 LEFT JOIN p b ON b.ano=k.ano-1 AND b.quadrimestre=k.quadrimestre AND b.id_loja=k.id_loja AND b.id_produto=k.id_produto
 WHERE EXISTS(SELECT 1 FROM public.vw_bi_periodos d WHERE d.ano=k.ano);
 
-CREATE OR REPLACE VIEW public.vw_bi_concorrencia WITH (security_invoker=true) AS
+CREATE VIEW public.vw_bi_concorrencia WITH (security_invoker=true) AS
 WITH concorrente AS (
  SELECT d.ano,q.quadrimestre,sum(f.valor_venda)::numeric AS receita_concorrente
  FROM public.fat_concorrente f JOIN public.dim_data d USING(id_data)

@@ -85,7 +85,8 @@ function main() {
   console.log(`  entradas de de-para       ${r.deparaProduto}`);
   console.log(`  estado civil              ${r.estadoCivil} membros`);
   console.log(`  calendário                ${r.calendario} quadrimestres`);
-  console.log(`  fatos de venda            ${r.fatos}`);
+  console.log(`  itens de venda            ${r.fatos} (grão de item, só em stg.cln_fat_vendas)`);
+  console.log(`  fatos de venda            ${r.fatosAgregados} (produto x loja x quadrimestre x estado civil)`);
   console.log(`  fatos de concorrente      ${r.concorrente} (24 meses agregados)`);
   console.log(`  rejeitados                ${r.rejeitos}`);
   console.log(`  reconciliação             ${r.itensOrigem} itens = ${r.fatos} + ${r.rejeitos} ✓`);

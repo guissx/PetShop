@@ -16,6 +16,10 @@ contagens são exatas, não amostras.
 **Total no grão de item: 6.621 linhas.** Volume irrelevante para performance —
 as decisões de arquitetura aqui são sobre correção e auditabilidade, não escala.
 
+Esse é o grão da **origem**, e ele sobrevive em `stg.cln_fat_vendas`.
+`public.fat_vendas` agrega essas linhas no grão das próprias dimensões — 1.382
+linhas, ver [07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão).
+
 Nenhuma fonte traz a **loja** como coluna. A loja é implícita no arquivo de
 origem, e o ETL precisa atribuí-la ao popular `fat_vendas.sk_loja`.
 

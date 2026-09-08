@@ -74,8 +74,64 @@ mas é uma restrição a mais.
 Descarta a análise por produto, que é provavelmente o ponto central do trabalho.
 Não recomendada.
 
-> **Recomendação:** (a). É a mais convencional, preserva a rastreabilidade e não
-> impõe restrições sobre a estrutura dos pedidos.
+**(d) Agregar no grão das próprias dimensões — APLICADA.** Uma linha por
+combinação de `sk_produto`, `sk_loja`, `id_data` e `id_estado_civil`, com
+`quantidade` e `valor_venda` somados. Nada de DDL muda, e `id_venda` deixa de
+precisar ser o número do pedido: passa a **codificar a combinação**.
+
+```
+id_venda = id_data * 10.000.000 + id_loja * 1.000.000 + id_produto * 1.000 + id_estado_civil
+```
+
+### Solução aplicada
+
+Foi a (d). Os 6.621 itens viram **1.382 linhas** — e 1.382 é exatamente o número
+de combinações dimensionais distintas presentes nos dados, não um número
+escolhido.
+
+Por que a (d) e não a (a), que era a recomendação original: a tabela declara
+quatro dimensões e mais nada. No grão de item, duas linhas com a mesma
+combinação eram distinguidas **só** pelo `id_venda`, e nenhum dos nove
+indicadores do enunciado consulta essa distinção. O grão de item guardava,
+portanto, uma informação que a tabela não modela — e a PK, que deveria declarar
+o grão, declarava outra coisa.
+
+Com a (d) a PK passa a declarar o grão de fato: duas linhas da mesma combinação
+colidem na chave em vez de duplicar medida em silêncio.
+
+**O que se ganha**
+
+- A PK declara o grão, e a carga afirma isso explicitamente no destino
+  (`GROUP BY ... HAVING count(*) > 1` levanta exceção antes do COMMIT).
+- Some a chave codificada que só existia para contornar o conflito de PK.
+- `vw_bi_vendas` passa a ser 1:1 com o fato.
+
+**O que se perde**
+
+- **Contagem de pedidos** (1.900), **itens por pedido** (3,5) e **ticket médio**
+  deixam de ser deriváveis do schema `public`.
+- A medida `itens` desapareceu das views de BI: no grão agregado o DW não sabe
+  quantas linhas de pedido formaram cada fato.
+
+Ambos sobrevivem em `stg.cln_fat_vendas`, que **continua no grão de item** com
+6.621 linhas, a data real da venda e o número do pedido de origem. A
+reconciliação `raw = cln + rejeitados` continua valendo linha a linha.
+
+**Onde a agregação acontece**
+
+No conformador (`etl/conform.mjs`), não no SQL de carga — mesma decisão já
+tomada para o concorrente. `stg.cln_fat_vendas_dw` recebe o grão pronto e a
+carga é projeção mais lookup SCD2. Três invariantes falham alto se forem
+violadas: unidade, dinheiro e linha (`itens_agregados` tem que somar 6.621).
+A conferência é repetida no banco por `stg.vw_check_agregacao_vendas` e de novo
+no bloco de validação do `40_load_dw.sql`, antes do COMMIT.
+
+**Efeito colateral no SCD2**
+
+O fato agregado não tem data real, então o lookup de versão de produto e loja
+usa o **primeiro dia do quadrimestre** como âncora (`data_referencia`, o mesmo
+padrão de `fat_concorrente`). A resolução do SCD2 passa a ser quadrimestral —
+o que já era o teto imposto pelo grão de `dim_data`.
 
 ---
 
@@ -149,7 +205,7 @@ não serve.
 > ("por quadrimestre e/ou ano") é atendida; a granularidade mensal do
 > concorrente deixa de existir no DW e permanece só em `stg.raw_concorrente`.
 >
-> A agregação é o único ponto do pipeline onde N linhas viram 1, então tem
+> A agregação faz N linhas virarem 1, então tem
 > validação própria em três camadas: o conformador falha se a soma dos valores
 > ou a contagem de meses não fechar; `stg.vw_check_agregacao_concorrente`
 > confere `sum(meses_agregados) = 24`; e o `40_load_dw.sql` compara a soma de
@@ -241,11 +297,13 @@ Registrado aqui porque não é reversível sem recarga completa:
 
 ### O que continuou igual
 
-- `fat_vendas` mantém as **6.621 linhas** no grão de item. O que mudou foi a
-  resolução temporal de cada linha, não a quantidade delas.
-- O lookup SCD2 continua usando a **data real** do fato: `stg.cln_fat_vendas`
-  preserva a coluna `data` justamente para isso. Sem ela seria impossível achar
-  a versão vigente de produto e loja no momento da venda.
+- `stg.cln_fat_vendas` mantém as **6.621 linhas** no grão de item. O que mudou
+  na época foi a resolução temporal de cada linha, não a quantidade delas.
+  `public.fat_vendas` só passou às 1.382 linhas agregadas depois, pelo
+  bloqueio 1 — são duas mudanças independentes.
+- O lookup SCD2 do grão de item usa a **data real** do fato: `stg.cln_fat_vendas`
+  preserva a coluna `data` justamente para isso. Para o fato agregado, que não
+  tem data real, a âncora é o primeiro dia do quadrimestre.
 
 ### Quadrimestre não é trimestre
 
@@ -356,14 +414,14 @@ eles produz resultados sem significado real. Ver
 
 | # | Bloqueio | Gravidade | Muda DDL? | Recomendação |
 |---|---|---|---|---|
-| 1 | `fat_vendas` PK vs. grão | **Bloqueante** — cabem ~900 de 6.621 linhas | sim | Surrogate `sk_venda`, `id_venda` como dimensão degenerada |
+| 1 | `fat_vendas` PK vs. grão | **RESOLVIDO** — fato agregado no grão das dimensões | não | Feito: 1.382 linhas, `id_venda` codifica a combinação dimensional |
 | 2 | `fat_concorrente` vs. fonte | **Bloqueante** — 3 colunas obrigatórias não existem na fonte | sim | Redesenhar como fato mensal sem produto |
 | 3 | `dim_data` grão diário | **RESOLVIDO** — passou a quadrimestral | sim | Feito: PK `id_data` sequencial, 6 linhas, concorrente agregado |
 | 4 | `dim_produto` chave global | Média — resolvido pelo staging | não | Manter DDL, documentar via `COMMENT` |
 | 5 | Serviços sem destino | Média — 300 transações descartadas | opcional | Documentar a exclusão, ou criar `fat_servico` |
 | 6 | Sem `dim_cliente` | Escopo | opcional | Decidir conforme os objetivos da análise |
 
-Os bloqueios 1, 2 e 3 precisam ser resolvidos **antes** de escrever o ETL — eles
+Os bloqueios 2 e 3 precisam ser resolvidos **antes** de escrever o ETL — eles
 mudam a forma das tabelas de destino.
 
 O bloqueio 3 foi resolvido alterando o DDL: `dim_data` passou ao grão
@@ -372,6 +430,10 @@ quadrimestral com PK `id_data`. A migração de um DW já carregado está em
 destrutiva do preflight** — ela trunca os dois fatos, o que só é seguro porque
 a carga é snapshot completo.
 
-Os bloqueios 1 e 2 continuam absorvidos pelo ETL: a forma das tabelas
-`fat_vendas` e `fat_concorrente` não mudou além da troca de `data` por
-`id_data`.
+O bloqueio 1 foi resolvido **sem** alterar o DDL: `fat_vendas` passou ao grão
+agregado das próprias dimensões, e `id_venda` — que não podia ser o número do
+pedido — passou a codificar a combinação dimensional. A tabela ficou com 1.382
+linhas e a PK passou a declarar o grão.
+
+O bloqueio 2 continua absorvido pelo ETL: a forma de `fat_concorrente` não mudou
+além da troca de `data` por `id_data`.

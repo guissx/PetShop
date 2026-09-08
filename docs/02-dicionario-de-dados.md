@@ -151,16 +151,17 @@ sequencialmente na ordem `(ano, quadrimestre)`.
 
 ## fat_vendas
 
-Fato de vendas próprias. 0 linhas.
+Fato de vendas próprias, **agregado**: uma linha por produto x loja x
+quadrimestre x estado civil. 1.382 linhas, derivadas de 6.621 itens de origem.
 
 | # | Coluna | Tipo | Nulo | Default | Notas |
 |---|---|---|---|---|---|
-| 1 | `id_venda` | `bigint` | NN | — | **PK**. Sem identity — o ETL fornece |
+| 1 | `id_venda` | `bigint` | NN | — | **PK**. Sem identity — o ETL fornece. **Não é o número da venda na origem**: codifica a combinação dimensional (`id_data`, `id_loja`, `id_produto`, `id_estado_civil`) |
 | 2 | `sk_produto` | `bigint` | NN | — | **FK** → `dim_produto.sk_produto` |
 | 4 | `sk_loja` | `bigint` | NN | — | **FK** → `dim_loja.sk_loja` |
 | 5 | `id_data` | `integer` | NN | — | **FK** → `dim_data.id_data` (grão quadrimestral) |
-| 6 | `quantidade` | `integer` | NN | — | **CHECK > 0** (estritamente positivo) |
-| 7 | `valor_venda` | `numeric(14,2)` | NN | — | **CHECK >= 0** |
+| 6 | `quantidade` | `integer` | NN | — | **CHECK > 0**. Soma das unidades de todos os itens da combinação |
+| 7 | `valor_venda` | `numeric(14,2)` | NN | — | **CHECK >= 0**. Soma do valor de todos os itens da combinação |
 | 8 | `id_estado_civil` | `integer` | NN | — | **FK** → `dim_estado_civil`. Atributo demográfico degenerado |
 
 > As posições 3 e 9 foram removidas.
@@ -179,8 +180,14 @@ Fato de vendas próprias. 0 linhas.
 `ix_vendas_produto (sk_produto)`, `ix_vendas_loja (sk_loja)`,
 `ix_vendas_estcivil (id_estado_civil)` — todas as 4 FKs têm índice de cobertura.
 
-> ⚠️ **A PK é incompatível com o grão.** Ver
+> ✅ **A PK declara o grão.** Como `id_venda` codifica a combinação das quatro
+> dimensões, duas linhas do mesmo grão colidem na PK em vez de duplicar medida
+> em silêncio. Foi assim que o conflito PK vs. grão foi resolvido — ver
 > [07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão).
+>
+> ⚠️ **Não conte linhas para contar vendas.** `count(*)` aqui é o número de
+> combinações dimensionais, não de pedidos nem de itens. Pedidos e itens vivem
+> em `stg.cln_fat_vendas`.
 
 Todas as 4 FKs são `NOT NULL`, sem membro "desconhecido" nas dimensões. Ou seja:
 **toda linha de fato exige as 4 dimensões resolvidas**, sem exceção. Não há

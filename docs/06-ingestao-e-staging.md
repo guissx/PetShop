@@ -211,6 +211,35 @@ Com isso, `SELECT motivo, count(*) FROM stg.rej_fat_vendas GROUP BY 1` responde
 "o que ficou de fora e por quê" — que é a pergunta que um trabalho de ETL
 precisa saber responder.
 
+#### O fato de venda existe em dois grãos
+
+`public.fat_vendas` é agregado (ver
+[07](07-bloqueios-de-modelagem.md#1-fat_vendas--pk-incompatível-com-o-grão)), e
+a camada `cln` carrega os dois lados dessa transição:
+
+| Tabela | Grão | Linhas | Para quê |
+|---|---|---:|---|
+| `stg.cln_fat_vendas` | item de venda | 6.621 | Reconciliar com a origem, guardar a data real e o número do pedido, ancorar o SCD2 no grão de item |
+| `stg.cln_fat_vendas_dw` | produto x loja x quadrimestre x estado civil | 1.382 | O que `public.fat_vendas` recebe, sem transformação |
+
+A agregação acontece no conformador, não no SQL de carga — mesma decisão já
+tomada para o concorrente. `cln_fat_vendas_dw` tem
+`UNIQUE (sk_produto, sk_loja, id_data, id_estado_civil)`, que **declara o grão**,
+e a coluna de rastreio `itens_agregados`, cuja soma tem que dar 6.621.
+
+Duas views conferem que nada some entre os dois grãos:
+
+```sql
+-- diferenca_itens, diferenca_quantidade e diferenca_valor DEVEM ser 0
+SELECT * FROM stg.vw_check_agregacao_vendas;
+-- diferenca DEVE ser 0 em todas as fontes (continua no grão de item)
+SELECT * FROM stg.vw_check_reconciliacao;
+```
+
+A primeira é repetida no bloco de validação do `40_load_dw.sql`, que também
+afirma o grão no destino: se `public.fat_vendas` tiver duas linhas para a mesma
+combinação dimensional, a carga levanta exceção antes do COMMIT.
+
 ### Nota sobre RLS no schema `stg`
 
 O event trigger `ensure_rls` tem a lista de schemas **fixa em `('public')`
@@ -232,7 +261,7 @@ A ordem é imposta pelas FKs — nenhuma escolha aqui:
 3. dim_produto       -- 17 produtos do catálogo conformado
 4. dim_loja          -- 3 lojas
    ------------------ barreira: SKs precisam existir --------------------
-5. fat_vendas        -- lookup (fonte, id_origem) -> id_conformado -> sk_atual
+5. fat_vendas        -- 6.621 itens agregados em 1.382 linhas, ver 07
 6. fat_concorrente   -- 24 meses agregados em 6 quadrimestres, ver 07
 ```
 
@@ -253,7 +282,9 @@ INSERT INTO dim_data (id_data, ano, quadrimestre) VALUES
 ```
 
 O fato guarda `id_data`; a data real da venda fica em `stg.cln_fat_vendas`,
-onde ainda é necessária para o lookup temporal do SCD2.
+onde ainda é necessária para o lookup temporal do SCD2 no grão de item. O fato
+agregado não tem data real: o lookup dele usa o primeiro dia do quadrimestre
+(`data_referencia`), o mesmo padrão de `fat_concorrente`.
 
 Para a carga inicial das dimensões SCD2, `data_inicio` deve ser uma data de
 corte única e explícita (ex.: `2024-01-01 00:00:00`), não `now()` — assim as

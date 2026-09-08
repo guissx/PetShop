@@ -12,8 +12,8 @@
 
 import {
   LOJAS, ESTADO_CIVIL_CANONICO, ESTADO_CIVIL_NAO_INFORMADO, PRODUTO_SENTINELA,
-  NUMERACAO_CANONICA, AUTORIDADE_GRAFIA, FATOR_LOJA, FATOR_VENDA, LIMITES,
-  CALENDARIO, ESPERADO, FONTES,
+  NUMERACAO_CANONICA, AUTORIDADE_GRAFIA, FATOR_LOJA, FATOR_VENDA, FATOR_FATO,
+  LIMITES, CALENDARIO, ESPERADO, FONTES,
 } from './config.mjs';
 
 // -----------------------------------------------------------------------------
@@ -392,7 +392,119 @@ export function conformarVendas(fontes, deparaProduto, deparaEstadoCivil, ixCale
 }
 
 // =============================================================================
-// 5. Fato do concorrente
+// 5. Agregação do fato de venda
+// =============================================================================
+// O DW é AGREGADO no grão das dimensões de fat_vendas: produto x loja x
+// quadrimestre x estado civil. Os 6.621 itens conformados viram 1.382 linhas.
+//
+// A agregação acontece AQUI, no conformador, e não no SQL de carga — mesma
+// decisão já tomada para o concorrente. O SQL de carga fica sendo projeção mais
+// lookup SCD2, e os dois lugares onde N linhas viram 1 — este e o concorrente —
+// ficam ambos em JavaScript, cobertos por teste.
+//
+// stg.cln_fat_vendas continua no grão de item: é o que preserva a data da
+// venda, o número do pedido e a reconciliação raw = cln + rejeitados. Quem
+// precisar contar pedidos ou itens por pedido consulta o staging, não o DW.
+export function agregarVendas(fatos, calendario, avisos) {
+  // Primeiro dia do quadrimestre — âncora do lookup SCD2 na carga, como em
+  // cln_fat_concorrente. No grão agregado não existe uma data real da venda, e
+  // com dim_data quadrimestral o DW não conseguiria representar uma troca de
+  // versão dentro do quadrimestre de qualquer forma.
+  const dataReferenciaPor = new Map(calendario.map(d =>
+    [d.id_data, `${d.ano}-${doisDigitos((d.quadrimestre - 1) * 4 + 1)}-01`]));
+
+  // A chave codificada só é reversível se cada campo couber na sua casa.
+  const excede = (campo, valor, max) => {
+    if (!Number.isInteger(valor) || valor < 0 || valor > max) {
+      throw new Error(`${campo} ${valor} não cabe na chave de fat_vendas ` +
+                      `(máximo ${max}) — ajuste FATOR_FATO em config.mjs`);
+    }
+  };
+
+  const grupos = new Map();
+
+  for (const f of fatos) {
+    excede('id_data', f.id_data, LIMITES.max_id_data);
+    excede('id_loja', f.id_loja, LIMITES.max_id_loja);
+    excede('id_produto', f.id_produto, LIMITES.max_id_produto);
+    excede('id_estado_civil', f.id_estado_civil, LIMITES.max_id_estado_civil);
+
+    const idVenda = f.id_data * FATOR_FATO.data
+                  + f.id_loja * FATOR_FATO.loja
+                  + f.id_produto * FATOR_FATO.produto
+                  + f.id_estado_civil;
+
+    // Dinheiro somado em CENTAVOS inteiros: somar 6.621 strings de duas casas
+    // como float acumularia erro e a conferência de total passaria a depender
+    // de tolerância.
+    const centavos = Math.round(Number(f.valor_venda) * 100);
+
+    const g = grupos.get(idVenda);
+    if (g) {
+      // Se a codificação estivesse errada, duas combinações distintas cairiam
+      // na mesma chave e as medidas seriam somadas em silêncio.
+      if (g.id_data !== f.id_data || g.id_loja !== f.id_loja
+          || g.id_produto !== f.id_produto || g.id_estado_civil !== f.id_estado_civil) {
+        throw new Error(`chave ${idVenda} colide entre combinações diferentes ` +
+                        `— revise FATOR_FATO em config.mjs`);
+      }
+      g.quantidade += f.quantidade;
+      g.centavos += centavos;
+      g.itens_agregados++;
+    } else {
+      const dataReferencia = dataReferenciaPor.get(f.id_data);
+      if (!dataReferencia) {
+        throw new Error(`id_data ${f.id_data} sem linha no calendário`);
+      }
+      grupos.set(idVenda, {
+        id_venda: idVenda,
+        id_produto: f.id_produto,   // resolvido para sk_produto no SQL
+        id_loja: f.id_loja,         // resolvido para sk_loja no SQL
+        id_data: f.id_data,
+        id_estado_civil: f.id_estado_civil,
+        quantidade: f.quantidade,
+        centavos,
+        itens_agregados: 1,
+        data_referencia: dataReferencia,
+      });
+    }
+  }
+
+  const agregados = [...grupos.values()]
+    .sort((a, b) => a.id_venda - b.id_venda)
+    .map(({ centavos, ...g }) => ({ ...g, valor_venda: money(centavos / 100) }));
+
+  // A agregação é o risco novo desta etapa: unidade, dinheiro e linha não podem
+  // sumir. As três conferências são exatas — inteiros dos dois lados.
+  const unidadesOrigem = fatos.reduce((t, f) => t + f.quantidade, 0);
+  const unidadesAgregadas = agregados.reduce((t, g) => t + g.quantidade, 0);
+  if (unidadesOrigem !== unidadesAgregadas) {
+    throw new Error(`agregação de vendas perdeu unidade: ${unidadesOrigem} nos itens, ` +
+                    `${unidadesAgregadas} agregadas`);
+  }
+
+  const centavosOrigem = fatos.reduce((t, f) => t + Math.round(Number(f.valor_venda) * 100), 0);
+  const centavosAgregados = agregados.reduce(
+    (t, g) => t + Math.round(Number(g.valor_venda) * 100), 0);
+  if (centavosOrigem !== centavosAgregados) {
+    throw new Error(`agregação de vendas perdeu valor: ${money(centavosOrigem / 100)} nos itens, ` +
+                    `${money(centavosAgregados / 100)} agregado`);
+  }
+
+  const itensContabilizados = agregados.reduce((t, g) => t + g.itens_agregados, 0);
+  if (itensContabilizados !== fatos.length) {
+    throw new Error(`agregação de vendas perdeu linha: ${fatos.length} itens conformados, ` +
+                    `${itensContabilizados} contabilizados`);
+  }
+
+  avisos.push(`vendas: ${fatos.length} itens agregados em ${agregados.length} linhas de ` +
+              `fat_vendas (produto x loja x quadrimestre x estado civil) — contagem de ` +
+              `pedidos e itens por pedido só existe em stg.cln_fat_vendas`);
+  return agregados;
+}
+
+// =============================================================================
+// 6. Fato do concorrente
 // =============================================================================
 // A fonte e MENSAL (24 linhas) e o DW e QUADRIMESTRAL: a agregacao acontece
 // aqui, no conformador, e nao no SQL de carga. Consequencia deliberada: a
@@ -465,7 +577,7 @@ export function conformarConcorrente(linhas, ixCalendario, avisos) {
 }
 
 // =============================================================================
-// 6. Calendário
+// 7. Calendário
 // =============================================================================
 /** Quadrimestre de um mes 1..12: 1 = Jan-Abr, 2 = Mai-Ago, 3 = Set-Dez. */
 export function quadrimestreDe(mes) {
@@ -521,6 +633,7 @@ export function conformarTudo(fontes) {
   const calendario = gerarCalendario();
   const ixCalendario = indexarCalendario(calendario);
   const vendas = conformarVendas(fontes, deparaProduto, estadoCivil.depara, ixCalendario, avisos);
+  const fatosAgregados = agregarVendas(vendas.fatos, calendario, avisos);
   const concorrente = conformarConcorrente(fontes.concorrente, ixCalendario, avisos);
 
   // Reconciliação: nenhuma linha pode sumir sem motivo registrado.
@@ -532,14 +645,24 @@ export function conformarTudo(fontes) {
                     `= ${contabilizadas}`);
   }
 
+  // O número de combinações é derivado dos dados, não imposto: divergir é
+  // aviso, não erro. As invariantes duras da agregação (unidade, dinheiro e
+  // linha) já falharam alto lá dentro se tivessem sido violadas.
+  if (fatosAgregados.length !== ESPERADO.linhas_fat_vendas) {
+    avisos.push(`CONTAGEM DIFERENTE: fat_vendas esperava ${ESPERADO.linhas_fat_vendas} linhas ` +
+                `agregadas, derivou ${fatosAgregados.length} — se os dados mudaram de ` +
+                `propósito, ajuste ESPERADO em config.mjs`);
+  }
+
   return {
     avisos, catalogo, deparaProduto, estadoCivil, lojas, calendario,
-    fatos: vendas.fatos, rejeitos: vendas.rejeitos,
+    fatos: vendas.fatos, fatosAgregados, rejeitos: vendas.rejeitos,
     divergenciasValorTotal: vendas.divergenciasValorTotal,
     concorrente,
     resumo: {
       itensOrigem,
       fatos: vendas.fatos.length,
+      fatosAgregados: fatosAgregados.length,
       rejeitos: vendas.rejeitos.length,
       produtos: catalogo.length,
       deparaProduto: deparaProduto.length,

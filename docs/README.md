@@ -31,7 +31,8 @@ alterado durante esta preparação.
 | Histórico remoto | pendente de aplicação no projeto correto |
 | Schema de staging | implementado em [`sql/02_stg_ddl.sql`](../sql/02_stg_ddl.sql) |
 | Fontes a carregar | 4 (Salvador, Itabuna, Feira de Santana, Concorrente) |
-| Volume no grão de item | **6.621 linhas** + 6 linhas de concorrente (24 meses agregados) |
+| Volume em `public.fat_vendas` | **1.382 linhas** (grão agregado) + 6 linhas de concorrente |
+| Volume no grão de item | **6.621 linhas**, apenas em `stg.cln_fat_vendas` |
 
 ## Decisões aplicadas
 
@@ -39,8 +40,10 @@ Os bloqueios do diagnóstico foram tratados majoritariamente sem mudar o
 conjunto de colunas do OLAP informado. A exceção é o item 6: `dim_data` e a
 coluna de data dos dois fatos **foram alteradas** por decisão de projeto.
 
-1. **`fat_vendas.id_venda`** recebe uma chave determinística por loja, pedido e
-   sequência do item, preservando as 6.621 linhas.
+1. **`fat_vendas` é agregado** no grão das próprias dimensões — produto x loja
+   x quadrimestre x estado civil, 1.382 linhas. `id_venda` codifica essa
+   combinação, então a PK declara o grão. O grão de item (6.621 linhas, com data
+   e número de pedido) fica em `stg.cln_fat_vendas`.
 2. **Concorrente** usa produto sentinela e quantidade zero documentada como
    “não medido”; somente a comparação de valores é válida. Os 24 meses da fonte
    são **agregados em 6 quadrimestres** na conformação, com validação de soma

@@ -7,10 +7,10 @@ Com Node 22 e dependências instaladas, execute `npm run dev` na raiz.
 Integra quatro fontes heterogêneas de três lojas de petshop, mais o faturamento
 de um concorrente, num modelo dimensional PostgreSQL hospedado no Supabase.
 
-O trabalho difícil aqui não é o volume — são **6.621 linhas no grão de item**,
-nada para um banco. É a **heterogeneidade**: dois dialetos SQL, três formatos de
-arquivo, dois encodings, três domínios diferentes para o mesmo campo e chaves
-naturais que colidem entre as fontes.
+O trabalho difícil aqui não é o volume — são **6.621 linhas de item na origem**,
+que viram 1.382 no fato agregado, nada para um banco. É a **heterogeneidade**:
+dois dialetos SQL, três formatos de arquivo, dois encodings, três domínios
+diferentes para o mesmo campo e chaves naturais que colidem entre as fontes.
 
 ---
 
@@ -39,17 +39,21 @@ Pipeline executado com sucesso. Estado atual do DW:
 | `dim_produto` | 18 (17 produtos + 1 sentinela) |
 | `dim_loja` | 3 |
 | `dim_estado_civil` | 6 |
-| `fat_vendas` | **6.621** |
+| `fat_vendas` | **1.382** (grão agregado; 6.621 itens de origem) |
 | `fat_concorrente` | 6 (24 meses agregados) |
 
 **Receita total: R$ 1.309.440,83**, batendo exatamente com o cálculo feito
 direto dos arquivos de origem, sem passar pelo ETL. Zero linhas rejeitadas.
 
-| Loja | Itens 2024 | Itens 2025 | Receita 2024 | Receita 2025 |
+| Loja | Unidades 2024 | Unidades 2025 | Receita 2024 | Receita 2025 |
 |---|---:|---:|---:|---:|
-| Salvador | 1.623 | 1.543 | R$ 273.441,60 | R$ 271.661,50 |
-| Itabuna | 858 | 899 | R$ 227.315,02 | R$ 234.662,51 |
-| Feira de Santana | 823 | 875 | R$ 144.764,40 | R$ 157.595,80 |
+| Salvador | 4.036 | 3.853 | R$ 273.441,60 | R$ 271.661,50 |
+| Itabuna | 2.160 | 2.229 | R$ 227.315,02 | R$ 234.662,51 |
+| Feira de Santana | 2.012 | 2.192 | R$ 144.764,40 | R$ 157.595,80 |
+
+`count(*)` em `fat_vendas` conta **combinações dimensionais**, não vendas nem
+itens. Para contar pedidos (1.900) ou linhas de pedido (6.621), consulte
+`stg.cln_fat_vendas`.
 
 ---
 
@@ -161,7 +165,7 @@ erDiagram
 | `dim_loja` | **SCD tipo 2** | Uma versão por loja por vigência |
 | `dim_estado_civil` | Estática | Um rótulo |
 | `dim_data` | Calendário | Um **quadrimestre** (`ano`, `quadrimestre`) |
-| `fat_vendas` | Fato | **Um item de venda** |
+| `fat_vendas` | Fato | **Produto x loja x quadrimestre x estado civil** (agregado) |
 | `fat_concorrente` | Fato | Um **quadrimestre** agregado |
 
 O SCD2 é garantido **pelo banco**, não por convenção de ETL:
@@ -221,29 +225,48 @@ modelo dimensional. **É a justificativa central para a área de staging.**
 Os 47 mapeamentos são **derivados** por agrupamento de nome normalizado (sem
 acento, minúsculo), não digitados à mão.
 
-### 2. `fat_vendas` tem PK em `id_venda` mas grão de item
+### 2. `fat_vendas` tem PK em `id_venda` mas quatro dimensões
 
-O destino não muda, então o ETL absorve o conflito. Não serve usar o número da
-venda na origem (as três fontes numeram a partir de 1) nem `(venda, produto)`
-(existem **592 casos** de produto repetido no mesmo pedido). A chave é gerada
-assim:
+O destino não muda, e no grão de item nenhuma chave honesta cabe: o número da
+venda na origem colide entre as fontes (as três numeram a partir de 1) e
+`(venda, produto)` também não serve, porque existem **592 casos** de produto
+repetido no mesmo pedido.
+
+A saída foi olhar para o que a tabela declara. `fat_vendas` tem quatro FKs e
+mais nada — produto, loja, quadrimestre e estado civil. Esse **é** o grão. Os
+6.621 itens são agregados em **1.382 linhas**, uma por combinação, com
+`quantidade` e `valor_venda` somados. E `id_venda`, que não podia ser o número
+do pedido, passa a codificar a própria combinação:
 
 ```
-id_venda = id_loja × 1.000.000.000 + id_venda_origem × 100 + seq_item
+id_venda = id_data × 10.000.000 + id_loja × 1.000.000 + id_produto × 1.000 + id_estado_civil
 ```
 
 Formato **decodificável** de propósito, em vez de um contador opaco:
 
 ```
-1000000101  →  loja=1  venda=1    item=1   (Salvador)
-2000001004  →  loja=2  venda=10   item=4   (Itabuna)
-3000050005  →  loja=3  venda=500  item=5   (Feira)
+31017003  →  id_data=3  loja=1  produto=17  estado_civil=3
+62003009  →  id_data=6  loja=2  produto=3   estado_civil=9
 ```
 
-Assim `id_venda / 100` reagrupa os itens do mesmo pedido original e
-`id_venda / 1000000000` devolve a loja — a informação que uma PK em `id_venda`
-pareceria destruir fica preservada. O script **falha** se algum id exceder os
-fatores, em vez de gerar chave colidida em silêncio.
+Com isso a PK **declara o grão**: duas linhas da mesma combinação colidem na
+chave em vez de duplicar medida em silêncio. O script falha se algum id exceder
+os fatores, em vez de gerar chave colidida.
+
+O preço é real e está documentado: **contagem de pedidos, itens por pedido e
+ticket médio deixam de existir no `public`**. Eles vivem em
+`stg.cln_fat_vendas`, que continua no grão de item (6.621 linhas) com a data
+real e o número do pedido, e onde a chave decodificável antiga continua valendo:
+
+```
+id_item = id_loja × 1.000.000.000 + id_venda_origem × 100 + seq_item
+1000000101  →  loja=1  venda=1  item=1   (Salvador)
+```
+
+A agregação acontece no conformador, e três invariantes a protegem: unidade,
+dinheiro e linha. `stg.vw_check_agregacao_vendas` repete a conferência no banco,
+e o `40_load_dw.sql` a repete de novo — além de afirmar o grão no destino — antes
+de deixar o COMMIT acontecer.
 
 ### 3. `fat_concorrente` exige colunas que a fonte não tem
 
@@ -337,7 +360,7 @@ Cria em `sql/generated/`:
 |---|---:|---|
 | `10_stg_raw.sql` | ~909 KB | Espelho das fontes |
 | `20_stg_map.sql` | ~5 KB | Catálogo e de-para derivados |
-| `30_stg_cln.sql` | ~506 KB | As 6.621 linhas conformadas |
+| `30_stg_cln.sql` | ~584 KB | As 6.621 linhas de item + as 1.382 agregadas |
 | `40_load_dw.sql` | ~9 KB | Carga no `public`, com validação |
 | `manifest.json` | — | `id_carga`, SHA-256 e tamanho das 8 fontes |
 
@@ -403,6 +426,7 @@ falha de um ETL.**
 - um valor de estado civil não tem correspondência no config
 - um produto não tem categoria em fonte nenhuma
 - um id de venda ou contagem de itens excede os fatores da chave
+- a agregação do fato perde unidade, dinheiro ou linha
 - a reconciliação não fecha: *itens da origem ≠ conformados + rejeitados*
 - o número de produtos distintos difere do esperado
 
@@ -471,14 +495,14 @@ Os 17 produtos, os 47 mapeamentos, a categoria herdada e a grafia escolhida
 
 ```sql
 -- Receita por loja e ano
-SELECT l.loja, d.ano, count(*) AS itens, round(sum(f.valor_venda), 2) AS receita
+SELECT l.loja, d.ano, sum(f.quantidade) AS unidades, round(sum(f.valor_venda), 2) AS receita
 FROM fat_vendas f
 JOIN dim_loja l ON l.sk_loja = f.sk_loja
 JOIN dim_data d ON d.id_data = f.id_data
 GROUP BY 1, 2 ORDER BY 1, 2;
 
 -- Quadrimestres de 2024 (1 = jan-abr, 2 = mai-ago, 3 = set-dez)
-SELECT d.quadrimestre, count(*) AS itens, round(sum(f.valor_venda), 2) AS receita
+SELECT d.quadrimestre, sum(f.quantidade) AS unidades, round(sum(f.valor_venda), 2) AS receita
 FROM fat_vendas f
 JOIN dim_data d ON d.id_data = f.id_data
 WHERE d.ano = 2024

@@ -11,7 +11,7 @@
 // Não edite à mão — edite config.mjs ou conform.mjs.
 // =============================================================================
 
-import { FATOR_LOJA, FATOR_VENDA, CALENDARIO, PRODUTO_SENTINELA } from './config.mjs';
+import { FATOR_LOJA, FATOR_VENDA, FATOR_FATO, CALENDARIO, PRODUTO_SENTINELA } from './config.mjs';
 
 const LOTE = 500;   // linhas por INSERT; mantém as instruções digeríveis
 
@@ -198,10 +198,19 @@ export function emitirCln(c, contexto) {
   const p = [];
   const idCarga = contexto.idCarga;
   p.push(cabecalho('stg.cln_* — tipado e conformado, pronto para carga',
-    'As chaves de fato já vêm calculadas:\n' +
+    'O fato de venda existe em DOIS grãos, e as duas chaves já vêm calculadas.\n' +
+    '\n' +
+    'cln_fat_vendas — grão de ITEM, uma linha por produto dentro de um pedido:\n' +
     `  id_venda = id_loja * ${FATOR_LOJA} + id_venda_origem * ${FATOR_VENDA} + seq_item\n` +
-    'Formato decodificável de propósito: (id_venda / 100) reagrupa os itens do\n' +
-    'mesmo pedido original, informação que uma PK em id_venda pareceria destruir.\n' +
+    'Decodificável de propósito: (id_venda / 100) reagrupa os itens do mesmo\n' +
+    'pedido. É a única camada onde a data da venda e o número do pedido\n' +
+    'sobrevivem, e é ela que reconcilia com a origem.\n' +
+    '\n' +
+    'cln_fat_vendas_dw — grão AGREGADO, o que public.fat_vendas recebe:\n' +
+    `  id_venda = id_data * ${FATOR_FATO.data} + id_loja * ${FATOR_FATO.loja}` +
+    ` + id_produto * ${FATOR_FATO.produto} + id_estado_civil\n` +
+    'Uma linha por produto x loja x quadrimestre x estado civil. A chave É a\n' +
+    'combinação dimensional, então a PK declara o grão.\n' +
     '\n' +
     'sk_produto e sk_loja ficam como id_produto/id_loja aqui e só viram surrogate\n' +
     'no 40_load_dw.sql, porque as SKs são IDENTITY e só existem depois da carga\n' +
@@ -219,7 +228,8 @@ BEGIN
     END IF;
 END $$;\n`);
   p.push('TRUNCATE stg.cln_dim_produto, stg.cln_dim_loja, stg.cln_dim_estado_civil,');
-  p.push('         stg.cln_dim_data, stg.cln_fat_vendas, stg.cln_fat_concorrente;\n');
+  p.push('         stg.cln_dim_data, stg.cln_fat_vendas, stg.cln_fat_vendas_dw,');
+  p.push('         stg.cln_fat_concorrente;\n');
   p.push(`DELETE FROM stg.rej_carga WHERE id_carga = ${lit(idCarga)}::uuid;\n`);
 
   p.push('-- dimensões');
@@ -236,6 +246,12 @@ END $$;\n`);
     ['id_venda', 'sk_produto', 'sk_loja', 'id_data', 'data', 'quantidade', 'valor_venda',
      'id_estado_civil', 'fonte', 'id_venda_origem', 'seq_item', 'id_produto_origem'],
     c.fatos.map(f => ({ ...f, sk_produto: f.id_produto, sk_loja: f.id_loja }))));
+
+  p.push('-- fato de venda no grao do DW: itens ja agregados por combinacao dimensional');
+  p.push(inserts('stg.cln_fat_vendas_dw',
+    ['id_venda', 'sk_produto', 'sk_loja', 'id_data', 'id_estado_civil', 'quantidade',
+     'valor_venda', 'itens_agregados', 'data_referencia'],
+    c.fatosAgregados.map(f => ({ ...f, sk_produto: f.id_produto, sk_loja: f.id_loja }))));
 
   p.push('-- fato do concorrente (produto sentinela, quantidade 0, meses ja agregados)');
   p.push(inserts('stg.cln_fat_concorrente',
@@ -257,7 +273,8 @@ END $$;\n`);
   p.push(`UPDATE stg.etl_carga
 SET status = 'transformada',
     resumo = resumo || jsonb_build_object(
-        'fatos_venda', ${c.fatos.length},
+        'itens_venda', ${c.fatos.length},
+        'fatos_venda', ${c.fatosAgregados.length},
         'fatos_concorrente', ${c.concorrente.length},
         'rejeitados', ${c.rejeitos.length},
         'itens_origem', ${c.resumo.itensOrigem}
@@ -279,7 +296,13 @@ export function emitirCarga(contexto) {
   return cabecalho('Carga transacional stg.cln_* -> public',
     'Implementa SCD2 real para produto e loja, resolve as surrogate keys pela\n' +
     'vigência do fato e valida tudo ANTES do COMMIT. Um advisory lock impede\n' +
-    'duas cargas concorrentes. Reexecutar o mesmo lote é idempotente.') + `
+    'duas cargas concorrentes. Reexecutar o mesmo lote é idempotente.\n' +
+    '\n' +
+    'Os dois fatos chegam AGREGADOS do conformador e aqui são só projeção:\n' +
+    'fat_vendas no grão produto x loja x quadrimestre x estado civil, e\n' +
+    'fat_concorrente no grão quadrimestre. Nenhum GROUP BY neste arquivo — o\n' +
+    'que ele faz é conferir que as agregações fecharam em linha, unidade e\n' +
+    'dinheiro antes de deixar o COMMIT acontecer.') + `
 BEGIN;
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '5min';
@@ -402,21 +425,27 @@ WHERE NOT EXISTS (
 -- Snapshot completo dos fatos. O TRUNCATE e a recarga ficam na mesma transação.
 TRUNCATE public.fat_vendas, public.fat_concorrente;
 
--- c.data NAO vai para o destino: o DW e quadrimestral. Ela e usada aqui apenas
--- como ancora temporal do lookup SCD2, que precisa da data real do fato.
+-- public.fat_vendas e AGREGADO: uma linha por produto x loja x quadrimestre x
+-- estado civil. O conformador ja entregou o grao pronto em cln_fat_vendas_dw,
+-- entao aqui e projecao — nenhum GROUP BY. O grao de item fica em
+-- stg.cln_fat_vendas, que e quem preserva a data da venda e o numero do pedido.
+--
+-- data_referencia (1o dia do quadrimestre) ancora o lookup SCD2. No grao
+-- agregado nao existe uma data real do fato, e dim_data e quadrimestral: a
+-- resolucao de versao de produto e loja e quadrimestral tambem.
 INSERT INTO public.fat_vendas
     (id_venda, sk_produto, sk_loja, id_data, quantidade, valor_venda, id_estado_civil)
 SELECT c.id_venda, p.sk_produto, l.sk_loja, c.id_data, c.quantidade,
        c.valor_venda, c.id_estado_civil
-FROM stg.cln_fat_vendas c
+FROM stg.cln_fat_vendas_dw c
 JOIN public.dim_produto p
   ON p.id_produto = c.sk_produto
- AND c.data::timestamp >= p.data_inicio
- AND c.data::timestamp <  p.data_fim
+ AND c.data_referencia::timestamp >= p.data_inicio
+ AND c.data_referencia::timestamp <  p.data_fim
 JOIN public.dim_loja l
   ON l.id_loja = c.sk_loja
- AND c.data::timestamp >= l.data_inicio
- AND c.data::timestamp <  l.data_fim;
+ AND c.data_referencia::timestamp >= l.data_inicio
+ AND c.data_referencia::timestamp <  l.data_fim;
 
 -- A fonte concorrente é mensal e não mede produto nem quantidade. Os 24 meses
 -- ja chegam agregados em 6 quadrimestres pelo conformador; aqui e so projecao.
@@ -441,13 +470,21 @@ DECLARE
     atual_produtos integer;
     esperado_lojas integer;
     atual_lojas integer;
+    qtd_vendas_cln bigint;
+    qtd_vendas_dw bigint;
+    valor_vendas_cln numeric;
+    valor_vendas_dw numeric;
     valor_conc_cln numeric;
     valor_conc_dw numeric;
     meses_conc integer;
     meses_raw integer;
 BEGIN
-    SELECT count(*) INTO esperado_vendas FROM stg.cln_fat_vendas;
+    SELECT count(*) INTO esperado_vendas FROM stg.cln_fat_vendas_dw;
     SELECT count(*) INTO obtido_vendas FROM public.fat_vendas;
+    SELECT sum(quantidade), sum(valor_venda) INTO qtd_vendas_cln, valor_vendas_cln
+      FROM stg.cln_fat_vendas_dw;
+    SELECT sum(quantidade), sum(valor_venda) INTO qtd_vendas_dw, valor_vendas_dw
+      FROM public.fat_vendas;
     SELECT count(*) INTO esperado_conc FROM stg.cln_fat_concorrente;
     SELECT count(*) INTO obtido_conc FROM public.fat_concorrente;
     SELECT count(*) INTO esperado_produtos FROM stg.cln_dim_produto;
@@ -464,6 +501,32 @@ BEGIN
         RAISE EXCEPTION 'fat_vendas: % esperadas, % carregadas',
                         esperado_vendas, obtido_vendas;
     END IF;
+    -- A agregacao item -> combinacao dimensional acontece no conformador; a
+    -- view confere que ela fechou contra o grao de item ainda no staging.
+    -- Contagem sozinha nao pega agregacao errada: ela preserva o numero de
+    -- grupos e perde medida. Por isso linha, unidade e dinheiro, os tres.
+    IF EXISTS (SELECT 1 FROM stg.vw_check_agregacao_vendas
+                WHERE diferenca_itens <> 0
+                   OR diferenca_quantidade <> 0
+                   OR diferenca_valor <> 0) THEN
+        RAISE EXCEPTION 'agregação de vendas não fecha com os itens conformados';
+    END IF;
+    IF qtd_vendas_cln IS DISTINCT FROM qtd_vendas_dw
+       OR valor_vendas_cln IS DISTINCT FROM valor_vendas_dw THEN
+        RAISE EXCEPTION 'fat_vendas: staging tem % unidades / %, destino tem % / %',
+                        qtd_vendas_cln, valor_vendas_cln, qtd_vendas_dw, valor_vendas_dw;
+    END IF;
+    -- O grao do destino, afirmado no destino. A PK codificada ja deveria
+    -- garantir isto, mas quem decide o sk e o lookup SCD2: se ele devolvesse
+    -- duas versoes para a mesma combinacao, a medida seria dividida em duas
+    -- linhas e todo indicador por produto passaria a depender de agregacao.
+    IF EXISTS (
+        SELECT 1 FROM public.fat_vendas
+        GROUP BY sk_produto, sk_loja, id_data, id_estado_civil
+        HAVING count(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'fat_vendas: grão violado — combinação dimensional repetida';
+    END IF;
     IF esperado_conc <> obtido_conc THEN
         RAISE EXCEPTION 'fat_concorrente: % esperadas, % carregadas',
                         esperado_conc, obtido_conc;
@@ -479,8 +542,8 @@ BEGIN
     IF EXISTS (SELECT 1 FROM stg.vw_check_reconciliacao WHERE diferenca <> 0) THEN
         RAISE EXCEPTION 'reconciliação raw = cln + rejeitados falhou';
     END IF;
-    -- A agregacao mensal -> quadrimestral do concorrente e o unico ponto do
-    -- pipeline onde N linhas viram 1. Contagem nao basta: confere valor e meses.
+    -- Mesma conferencia da agregacao de vendas, agora para o concorrente:
+    -- mensal -> quadrimestral. Contagem nao basta: confere valor e meses.
     IF valor_conc_cln IS DISTINCT FROM valor_conc_dw THEN
         RAISE EXCEPTION 'fat_concorrente: valor % no staging, % no destino',
                         valor_conc_cln, valor_conc_dw;
@@ -504,6 +567,7 @@ SET status = 'concluida',
     finalizado_em = clock_timestamp(),
     resumo = resumo || jsonb_build_object(
         'carregado_fat_vendas', (SELECT count(*) FROM public.fat_vendas),
+        'itens_agregados', (SELECT sum(itens_agregados) FROM stg.cln_fat_vendas_dw),
         'carregado_fat_concorrente', (SELECT count(*) FROM public.fat_concorrente)
     )
 WHERE id_carga = ${lit(idCarga)}::uuid;
@@ -528,12 +592,22 @@ WHERE id_carga = ${lit(idCarga)}::uuid
 GROUP BY 1, 2, 3
 ORDER BY 4 DESC;
 
-SELECT (f.id_venda / ${FATOR_LOJA})::int AS id_loja_decodificado,
-       l.id_loja AS id_loja_dimensao,
-       count(*) AS linhas
+-- A chave codificada tem que reproduzir a combinacao que a linha declara.
+-- Qualquer linha com confere = false significa PK inconsistente com as FKs.
+SELECT (f.id_venda / ${FATOR_FATO.data})::int AS id_data_decodificado,
+       ((f.id_venda / ${FATOR_FATO.loja}) % ${FATOR_FATO.data / FATOR_FATO.loja})::int
+           AS id_loja_decodificado,
+       count(*) AS linhas,
+       bool_and(
+           (f.id_venda / ${FATOR_FATO.data})::int = f.id_data
+       AND ((f.id_venda / ${FATOR_FATO.loja}) % ${FATOR_FATO.data / FATOR_FATO.loja})::int = l.id_loja
+       AND ((f.id_venda / ${FATOR_FATO.produto}) % ${FATOR_FATO.loja / FATOR_FATO.produto})::int = p.id_produto
+       AND (f.id_venda % ${FATOR_FATO.produto})::int = f.id_estado_civil
+       ) AS confere
 FROM public.fat_vendas f
 JOIN public.dim_loja l ON l.sk_loja = f.sk_loja
+JOIN public.dim_produto p ON p.sk_produto = f.sk_produto
 GROUP BY 1, 2
-ORDER BY 1;
+ORDER BY 1, 2;
 `;
 }
