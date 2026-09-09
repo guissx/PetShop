@@ -23,12 +23,13 @@ BEGIN
     END LOOP;
 END $$;
 
--- As views dependem das colunas alteradas abaixo, e `ALTER COLUMN ... TYPE` é
--- recusado mesmo quando o tipo já está correto:
---   ERROR: cannot alter type of a column used by a view or rule
--- Derrubar aqui e recriar no fim é o que torna este script realmente idempotente.
--- A recriação também é a oportunidade de corrigir o `security_invoker` (ver o
--- bloco no fim do arquivo).
+-- As duas views de dimensão corrente são recriadas no fim do arquivo com
+-- `security_invoker = true` — sem ele elas executam com os privilégios do dono
+-- e contornam o RLS das tabelas.
+--
+-- Derrubar aqui é seguro porque este mesmo script as recria. NÃO derrube as
+-- `vw_bi_*` do dashboard: são 13 views que este arquivo não conhece nem sabe
+-- recriar, e quem as define é sql/03_dashboard_views.sql.
 DROP VIEW IF EXISTS public.vw_dim_produto_atual;
 DROP VIEW IF EXISTS public.vw_dim_loja_atual;
 
@@ -137,15 +138,57 @@ BEGIN
     END IF;
 END $$;
 
--- `character` sem tamanho é char(1), mas o ETL carrega a UF `BA`.
-ALTER TABLE public.dim_loja
-    ALTER COLUMN estado TYPE character(2) USING btrim(estado)::character(2);
+-- ---------------------------------------------------------------------------
+-- Tipos das colunas — convertidos SÓ quando realmente divergem
+-- ---------------------------------------------------------------------------
+-- `ALTER COLUMN ... TYPE` não é condicional: o PostgreSQL recusa por dependência
+-- ANTES de comparar os tipos. Num banco onde as colunas já estão corretas mas
+-- existem views em cima delas, a forma incondicional falhava com
+--   ERROR: cannot alter type of a column used by a view or rule
+-- e a única saída seria derrubar as views — inclusive as 13 `vw_bi_*` do
+-- dashboard, que este script não conhece e não tem como recriar.
+--
+-- Checar o tipo antes resolve: quando já está certo, vira no-op de verdade e
+-- nenhuma view é tocada. Quando diverge de fato, aí sim a conversão é
+-- necessária e o erro de dependência é legítimo — cabe ao operador derrubar e
+-- recriar as views afetadas, que é uma decisão consciente, não um efeito
+-- colateral do preflight.
+DO $$
+DECLARE
+    tipo_atual text;
+BEGIN
+    -- `character` sem tamanho é char(1), mas o ETL carrega a UF `BA`.
+    SELECT format_type(atttypid, atttypmod) INTO tipo_atual
+    FROM pg_attribute
+    WHERE attrelid = 'public.dim_loja'::regclass AND attname = 'estado';
 
--- Medidas monetárias aditivas e estáveis para o Power BI.
-ALTER TABLE public.fat_vendas
-    ALTER COLUMN valor_venda TYPE numeric(14,2) USING valor_venda::numeric(14,2);
-ALTER TABLE public.fat_concorrente
-    ALTER COLUMN valor_venda TYPE numeric(14,2) USING valor_venda::numeric(14,2);
+    IF tipo_atual IS DISTINCT FROM 'character(2)' THEN
+        RAISE NOTICE 'convertendo dim_loja.estado de % para character(2)', tipo_atual;
+        ALTER TABLE public.dim_loja
+            ALTER COLUMN estado TYPE character(2) USING btrim(estado)::character(2);
+    END IF;
+
+    -- Medidas monetárias aditivas e estáveis para o Power BI.
+    SELECT format_type(atttypid, atttypmod) INTO tipo_atual
+    FROM pg_attribute
+    WHERE attrelid = 'public.fat_vendas'::regclass AND attname = 'valor_venda';
+
+    IF tipo_atual IS DISTINCT FROM 'numeric(14,2)' THEN
+        RAISE NOTICE 'convertendo fat_vendas.valor_venda de % para numeric(14,2)', tipo_atual;
+        ALTER TABLE public.fat_vendas
+            ALTER COLUMN valor_venda TYPE numeric(14,2) USING valor_venda::numeric(14,2);
+    END IF;
+
+    SELECT format_type(atttypid, atttypmod) INTO tipo_atual
+    FROM pg_attribute
+    WHERE attrelid = 'public.fat_concorrente'::regclass AND attname = 'valor_venda';
+
+    IF tipo_atual IS DISTINCT FROM 'numeric(14,2)' THEN
+        RAISE NOTICE 'convertendo fat_concorrente.valor_venda de % para numeric(14,2)', tipo_atual;
+        ALTER TABLE public.fat_concorrente
+            ALTER COLUMN valor_venda TYPE numeric(14,2) USING valor_venda::numeric(14,2);
+    END IF;
+END $$;
 
 -- Integridade SCD2. Sem versão explícita da extensão: Supabase usa a default.
 CREATE SCHEMA IF NOT EXISTS extensions;
